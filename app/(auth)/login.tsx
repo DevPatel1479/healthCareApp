@@ -1,6 +1,7 @@
 import OtpSection from "@/components/auth/OtpSection";
 import PhoneInputSection from "@/components/auth/PhoneInputSection";
 import { useState } from "react";
+
 import {
     KeyboardAvoidingView,
     Platform,

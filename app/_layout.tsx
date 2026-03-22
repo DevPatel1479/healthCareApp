@@ -1,7 +1,5 @@
-import CaregiverDashboard from "./(caregiver)/dashboard";
+import { Stack } from "expo-router";
 
-export default function AppLayout() {
-  // return <Stack screenOptions={{ headerShown: false }} />;
-  return <CaregiverDashboard/>
+export default function Layout() {
+  return <Stack screenOptions={{ headerShown: false }} />;
 }
-

@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   Animated,
+  Modal,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -18,21 +20,14 @@ export default function CaregiverDashboard() {
   const { width, height } = useWindowDimensions();
 
   const [tasks, setTasks] = useState([
-    { id: 1, title: "Give morning medication", completed: true, selected: false },
+    { id: 1, title: "Give morning medication", completed: false, selected: false },
     { id: 2, title: "Check blood pressure", completed: false, selected: false },
-    { id: 3, title: "Prepare lunch", completed: true, selected: false },
-    { id: 4, title: "Evening walk", completed: false, selected: false },
-    { id: 5, title: "Give evening medicine", completed: false, selected: false },
-    { id: 6, title: "Check sugar level", completed: false, selected: false },
-    { id: 7, title: "Morning hygiene support", completed: true, selected: false },
-    { id: 8, title: "Water reminder", completed: false, selected: false },
-    { id: 9, title: "Prepare snacks", completed: true, selected: false },
-    { id: 10, title: "Evening medication", completed: false, selected: false },
-    { id: 11, title: "Check oxygen level", completed: false, selected: false },
-    { id: 12, title: "Night routine prep", completed: false, selected: false },
   ]);
 
-  // 🔥 Toggle selection (not completion)
+  const [modalVisible, setModalVisible] = useState(false);
+  const [newTask, setNewTask] = useState("");
+
+  // 🔥 Toggle selection
   const handleToggle = (id: number) => {
     setTasks((prev) =>
       prev.map((t) =>
@@ -52,10 +47,26 @@ export default function CaregiverDashboard() {
     );
   };
 
+  // 🔥 Add new task
+  const handleAddTask = () => {
+    if (!newTask.trim()) return;
+
+    const task = {
+      id: Date.now(),
+      title: newTask.trim(),
+      completed: false,
+      selected: false,
+    };
+
+    setTasks((prev) => [task, ...prev]);
+    setNewTask("");
+    setModalVisible(false);
+  };
+
   const completed = tasks.filter((t) => t.completed).length;
   const selectedCount = tasks.filter((t) => t.selected).length;
 
-  // 🔥 FAB Animation
+  // 🔥 FAB animation
   const fabScale = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -63,8 +74,6 @@ export default function CaregiverDashboard() {
       Animated.spring(fabScale, {
         toValue: 1,
         useNativeDriver: true,
-        friction: 6,
-        tension: 120,
       }).start();
     } else {
       Animated.timing(fabScale, {
@@ -82,7 +91,7 @@ export default function CaregiverDashboard() {
         contentContainerStyle={{
           flexGrow: 1,
           paddingTop: height * 0.08,
-          paddingBottom: height * 0.12,
+          paddingBottom: height * 0.14,
         }}
       >
         <View
@@ -93,10 +102,8 @@ export default function CaregiverDashboard() {
             width: "100%",
           }}
         >
-          {/* Stats */}
           <StatsHeader completed={completed} total={tasks.length} />
 
-          {/* Task List */}
           {tasks.map((task) => (
             <TaskCard
               key={task.id}
@@ -107,35 +114,69 @@ export default function CaregiverDashboard() {
         </View>
       </ScrollView>
 
-      {/* 🔥 Animated Floating Button */}
+      {/* ✅ COMPLETE FAB */}
       {selectedCount > 0 && (
         <Animated.View
           style={[
-            styles.fabContainer,
+            styles.completeFabContainer,
             {
-              bottom: height * 0.04,
-              right: width * 0.06,
               transform: [{ scale: fabScale }],
               opacity: fabScale,
             },
           ]}
         >
           <TouchableOpacity
-            style={styles.fab}
+            style={styles.completeFab}
             onPress={handleComplete}
-            activeOpacity={0.85}
           >
-           <>
-  <Text style={styles.fabIcon}>✓</Text>
+            <Text style={styles.fabIcon}>✓</Text>
 
-  {/* Badge */}
-  <View style={styles.badge}>
-    <Text style={styles.badgeText}>{selectedCount}</Text>
-  </View>
-</>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{selectedCount}</Text>
+            </View>
           </TouchableOpacity>
         </Animated.View>
       )}
+
+      {/* ✅ ADD TASK FAB */}
+      <TouchableOpacity
+        style={styles.addFab}
+        onPress={() => setModalVisible(true)}
+      >
+        <Text style={styles.addIcon}>＋</Text>
+      </TouchableOpacity>
+
+      {/* ✅ ADD TASK MODAL */}
+      <Modal visible={modalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Add New Task</Text>
+
+            <TextInput
+              placeholder="Enter task..."
+              value={newTask}
+              onChangeText={setNewTask}
+              style={styles.input}
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.addBtn}
+                onPress={handleAddTask}
+              >
+                <Text style={{ color: "#fff" }}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -146,74 +187,109 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
   },
 
-  // 🔥 FAB Container
-  fabContainer: {
+  // ✅ COMPLETE FAB
+  completeFabContainer: {
     position: "absolute",
+    bottom: 90,
+    right: 20,
   },
 
-  // 🔥 FAB Button
-  fab: {
-  height: 64,
-  width: 64,
-  borderRadius: 32,
-  backgroundColor: "#ef4444",
-
-  justifyContent: "center",
-  alignItems: "center",
-
-  shadowColor: "#ef4444",
-  shadowOpacity: 0.4,
-  shadowRadius: 10,
-  shadowOffset: { width: 0, height: 6 },
-
-  elevation: 8,
-},
-
-fabIcon: {
-  color: "#fff",
-  fontSize: 26,
-  fontWeight: "bold",
-},
-
-// 🔥 Badge container (separate from icon)
-badge: {
-  position: "absolute",
-  top: 6,
-  right: 6,
-  backgroundColor: "#fff",
-  minWidth: 20,
-  height: 20,
-  borderRadius: 10,
-  justifyContent: "center",
-  alignItems: "center",
-
-  // subtle shadow
-  elevation: 3,
-},
-
-badgeText: {
-  color: "#ef4444",
-  fontSize: 11,
-  fontWeight: "bold",
-},
-  fabInner: {
-    alignItems: "center",
+  completeFab: {
+    height: 64,
+    width: 64,
+    borderRadius: 32,
+    backgroundColor: "#ef4444",
     justifyContent: "center",
+    alignItems: "center",
+    elevation: 8,
   },
 
-  
+  fabIcon: {
+    color: "#fff",
+    fontSize: 26,
+    fontWeight: "bold",
+  },
 
-  // 🔥 Badge
-  fabCount: {
+  badge: {
     position: "absolute",
     top: 6,
-    right: 8,
+    right: 6,
     backgroundColor: "#fff",
-    color: "#ef4444",
-    fontSize: 10,
-    fontWeight: "bold",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    minWidth: 20,
+    height: 20,
     borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  badgeText: {
+    color: "#ef4444",
+    fontSize: 11,
+    fontWeight: "bold",
+  },
+
+  // ✅ ADD FAB
+  addFab: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    height: 64,
+    width: 64,
+    borderRadius: 32,
+    backgroundColor: "#22c55e",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 8,
+  },
+
+  addIcon: {
+    color: "#fff",
+    fontSize: 30,
+    fontWeight: "bold",
+  },
+
+  // ✅ MODAL
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    padding: 20,
+  },
+
+  modalBox: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 12,
+  },
+
+  input: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+
+  cancelBtn: {
+    padding: 10,
+  },
+
+  addBtn: {
+    backgroundColor: "#22c55e",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
   },
 });

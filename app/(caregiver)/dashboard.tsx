@@ -138,7 +138,7 @@ export default function CaregiverDashboard() {
         </Animated.View>
       )}
 
-      {/* ✅ ADD TASK FAB */}
+      {/*  ADD TASK FAB */}
       <TouchableOpacity
         style={styles.addFab}
         onPress={() => setModalVisible(true)}
@@ -146,7 +146,7 @@ export default function CaregiverDashboard() {
         <Text style={styles.addIcon}>＋</Text>
       </TouchableOpacity>
 
-      {/* ✅ ADD TASK MODAL */}
+      {/*  ADD TASK MODAL */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
   },
 
-  // ✅ COMPLETE FAB
+  //  COMPLETE FAB
   completeFabContainer: {
     position: "absolute",
     bottom: 90,
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 
-  // ✅ ADD FAB
+  //  ADD FAB
   addFab: {
     position: "absolute",
     bottom: 20,
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 
-  // ✅ MODAL
+  //  MODAL
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",

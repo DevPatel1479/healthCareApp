@@ -12,7 +12,7 @@ import {
 export default function CaregiverScanner() {
   const [permission, requestPermission] = useCameraPermissions();
 
-  const [isScanning, setIsScanning] = useState(false); // 👈 NEW
+  const [isScanning, setIsScanning] = useState(false); 
   const [scanned, setScanned] = useState(false);
   const [result, setResult] = useState<"success" | "error" | null>(null);
 
@@ -38,7 +38,7 @@ useEffect(() => {
     ).start();
   }
 }, [isScanning, scanned]);
-  // 🔥 Ask permission automatically when scanning starts
+  //  Ask permission automatically when scanning starts
   useEffect(() => {
     if (isScanning && permission && !permission.granted) {
       requestPermission();
@@ -47,7 +47,7 @@ useEffect(() => {
 
   if (!permission) return <View />;
 
-  // 🔴 Permission denied screen
+  //  Permission denied screen
   if (isScanning && !permission.granted) {
     return (
       <View style={styles.center}>
@@ -59,7 +59,7 @@ useEffect(() => {
     );
   }
 
-  // 🔥 HANDLE SCAN
+  //  HANDLE SCAN
   const handleScan = ({ data }: any) => {
     if (scanLock.current) return;
 
@@ -69,7 +69,7 @@ useEffect(() => {
     if (data) {
       setResult("success");
 
-      // ✅ AUTO NAVIGATE (NO BUTTON)
+      //  AUTO NAVIGATE (NO BUTTON)
       setTimeout(() => {
         router.replace("/(caregiver)/dashboard");
       }, 600);
@@ -79,7 +79,7 @@ useEffect(() => {
     }
   };
 
-  // 🟢 INITIAL SCREEN (BEST UX)
+  //  INITIAL SCREEN (BEST UX)
   if (!isScanning) {
   return (
     <View style={styles.introContainer}>
@@ -104,7 +104,7 @@ useEffect(() => {
     </View>
   );
 }
-  // 🔵 SCANNER UI
+  //  SCANNER UI
   return (
     <View style={{ flex: 1 }}>
       {/* CAMERA */}
@@ -119,7 +119,7 @@ useEffect(() => {
   <Text style={styles.title}>Scan QR Code</Text>
 
   <View style={styles.scanBox}>
-    {/* 🔥 MOVING LASER */}
+    {/*  MOVING LASER */}
     {!scanned && (
       <Animated.View
         style={[
@@ -136,7 +136,7 @@ useEffect(() => {
     </Text>
   )}
 
-  {/* ❌ ERROR */}
+  {/*  ERROR */}
   {scanned && result === "error" && (
     <>
       <Text style={styles.error}>❌ Invalid QR</Text>
@@ -154,7 +154,7 @@ useEffect(() => {
     </>
   )}
 
-  {/* ✅ SUCCESS (NO BLUR) */}
+  {/*  SUCCESS  */}
   {scanned && result === "success" && (
     <Text style={styles.success}>
       ✅ Verified! Redirecting...
@@ -220,7 +220,7 @@ error: {
 
   
 
-  // 🔥 OVERLAY
+  //  OVERLAY
   
   retryBtn: {
     marginTop: 20,

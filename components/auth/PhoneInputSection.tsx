@@ -3,6 +3,7 @@
 import { StyleSheet, Text, View } from "react-native";
 import AppButton from "../ui/AppButton";
 import AppInput from "../ui/AppInput";
+import { useState } from "react";
 
 export default function PhoneInputSection({
   phone,
@@ -11,13 +12,14 @@ export default function PhoneInputSection({
   loading,
 }: any) {
   const isValid = phone.replace(/\D/g, "").length === 10;
+  const [activeType, setActiveType] = useState<"sms" | "whatsapp" | null>(null);
 
   return (
     <View>
       {/* Label */}
       <Text style={styles.label}>Mobile Number</Text>
 
-      {/* Input with prefix */}
+      {/* Input with prefix (UNCHANGED — stable) */}
       <View style={styles.inputWrap}>
         <Text style={styles.prefix}>+91</Text>
 
@@ -33,17 +35,36 @@ export default function PhoneInputSection({
         />
       </View>
 
-      {/* Button */}
-      <AppButton
-        title="Send OTP"
-        onPress={onSend}
-        loading={loading}
-        disabled={!isValid || loading}
-      />
+      {/* 🔥 Two Buttons */}
+      <View style={styles.buttonRow}>
+        <View style={{ flex: 1 }}>
+          <AppButton
+            title="SMS OTP"
+            onPress={() => {
+              setActiveType("sms");
+              onSend("sms");
+            }}
+            loading={loading && activeType === "sms"}
+            disabled={!isValid || loading}
+          />
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <AppButton
+            title="WhatsApp OTP"
+            onPress={() => {
+              setActiveType("whatsapp");
+              onSend("whatsapp");
+            }}
+            loading={loading && activeType === "whatsapp"}
+            disabled={!isValid || loading}
+          />
+        </View>
+      </View>
 
       {/* Hint */}
       <Text style={styles.hint}>
-        We'll send a 6-digit code to verify your number
+        Choose how you want to receive OTP
       </Text>
     </View>
   );
@@ -72,7 +93,12 @@ const styles = StyleSheet.create({
   },
 
   input: {
-    paddingLeft: 45, // space for +91
+    paddingLeft: 45,
+  },
+
+  buttonRow: {
+    flexDirection: "row",
+    gap: 10,
   },
 
   hint: {

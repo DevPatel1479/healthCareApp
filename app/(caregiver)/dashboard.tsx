@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-
 import {
   Animated,
+  ActivityIndicator,
   Modal,
   SafeAreaView,
   ScrollView,
@@ -11,177 +11,378 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   View,
+  Image,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 
 import StatsHeader from "@/components/dashboard/StatsHeader";
 import TaskCard from "@/components/dashboard/TaskCard";
 
+const API_URL = "http://10.148.248.206:3000/api/caregiver/4/tasks";
+
+
+type TaskAssignment = {
+  assignment_id: number;
+  status: "completed" | "pending" | "skipped" | "refused";
+  time_done: string | null;
+  flag_level: "green" | "yellow" | "red";
+  observation: string | null;
+  selected?: boolean;
+  task: {
+    task_id: number;
+    description: string;
+    task_category: string;
+    scheduled_time: string | null;
+    clinical_notes: string | null;
+  };
+};
+
+type GroupedTasks = Record<string, TaskAssignment[]>;
+
 export default function CaregiverDashboard() {
   const { width, height } = useWindowDimensions();
 
-  const [tasks, setTasks] = useState([
-    { id: 1, title: "Give morning medication", completed: false, selected: false },
-    { id: 2, title: "Check blood pressure", completed: false, selected: false },
-  ]);
-
+  // const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  // const [error, setError] = useState("");
+  const [tasks, setTasks] = useState<TaskAssignment[]>([]);
+  const [error, setError] = useState<string>("");
+  const [selectedTask, setSelectedTask] = useState<TaskAssignment | null>(null);
+  const [image, setImage] = useState<string | null>(null);
+  // bottom modal
   const [modalVisible, setModalVisible] = useState(false);
-  const [newTask, setNewTask] = useState("");
+  // const [selectedTask, setSelectedTask] = useState(null);
+  const [note, setNote] = useState("");
+  // const [image, setImage] = useState(null);
 
-  // 🔥 Toggle selection
-  const handleToggle = (id: number) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id ? { ...t, selected: !t.selected } : t
-      )
-    );
+  const fabScale = useRef(new Animated.Value(0)).current;
+
+  // ---------------- FETCH TASKS ----------------
+  const fetchTasks = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const res = await fetch(API_URL);
+      const json = await res.json();
+
+      if (!json.success) throw new Error(json.message || "Failed to load");
+
+      setTasks(json.data);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Something went wrong";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // 🔥 Complete selected tasks
-  const handleComplete = () => {
+  useEffect(() => {
+    fetchTasks();
+  }, []);
+
+  // ---------------- GROUP BY CATEGORY ----------------
+  const grouped: GroupedTasks = tasks.reduce((acc, item) => {
+    const cat = item.task.task_category;
+
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+
+    return acc;
+  }, {} as GroupedTasks);
+
+  // ---------------- TOGGLE ----------------
+  const handleToggle = (item: TaskAssignment) => {
+    if (item.status === "completed") return;
+
     setTasks((prev) =>
       prev.map((t) =>
-        t.selected
-          ? { ...t, completed: true, selected: false }
+        t.assignment_id === item.assignment_id
+          ? { ...t, selected: !t.selected }
           : t
       )
     );
+
+    setSelectedTask(item);
+    setModalVisible(true);
   };
 
-  // 🔥 Add new task
-  const handleAddTask = () => {
-    if (!newTask.trim()) return;
+  // ---------------- PICK IMAGE ----------------
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.7,
+    });
 
-    const task = {
-      id: Date.now(),
-      title: newTask.trim(),
-      completed: false,
-      selected: false,
-    };
+    if (!result.canceled) {
+      setImage(result.assets[0].uri);
+    }
+  };
 
-    setTasks((prev) => [task, ...prev]);
-    setNewTask("");
+  // ---------------- COMPLETE (DUMMY) ----------------
+  const handleSubmit = () => {
+    console.log("NOTE:", note);
+    console.log("IMAGE:", image);
+    console.log("TASK:", selectedTask);
+
     setModalVisible(false);
+    setNote("");
+    setImage(null);
   };
 
-  const completed = tasks.filter((t) => t.completed).length;
   const selectedCount = tasks.filter((t) => t.selected).length;
-
-  // 🔥 FAB animation
-  const fabScale = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (selectedCount > 0) {
-      Animated.spring(fabScale, {
-        toValue: 1,
-        useNativeDriver: true,
-      }).start();
+      Animated.spring(fabScale, { toValue: 1, useNativeDriver: true }).start();
     } else {
-      Animated.timing(fabScale, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }).start();
+      Animated.timing(fabScale, { toValue: 0, duration: 150, useNativeDriver: true }).start();
     }
   }, [selectedCount]);
 
+  // ---------------- LOADING UI ----------------
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.center}>
+        <ActivityIndicator size="large" />
+        <Text style={{ marginTop: 10 }}>Loading tasks...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // ---------------- ERROR UI ----------------
+  if (error) {
+    return (
+      <SafeAreaView style={styles.center}>
+        <Text style={{ color: "red", marginBottom: 10 }}>{error}</Text>
+        <TouchableOpacity onPress={fetchTasks} style={styles.retryBtn}>
+          <Text style={{ color: "#fff" }}>Retry</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+  const formatCategory = (cat: string) => {
+    return cat
+      .replaceAll("_", " ")
+      .toLowerCase()
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+  };
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          flexGrow: 1,
           paddingTop: height * 0.08,
           paddingBottom: height * 0.14,
         }}
       >
-        <View
-          style={{
-            paddingHorizontal: width * 0.05,
-            maxWidth: 500,
-            alignSelf: "center",
-            width: "100%",
-          }}
-        >
-          <StatsHeader completed={completed} total={tasks.length} />
+        <View style={{ paddingHorizontal: width * 0.05 }}>
 
-          {tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onToggle={handleToggle}
-            />
+          <StatsHeader
+            completed={tasks.filter((t) => t.status === "completed").length}
+            total={tasks.length}
+          />
+
+          {/* GROUPED TASKS */}
+          {Object.keys(grouped).map((category) => (
+            <View key={category} style={styles.categoryBlock}>
+
+              {/* CATEGORY HEADER */}
+              <View style={styles.categoryHeader}>
+                <Text style={styles.categoryTitle}>
+                  {formatCategory(category)}
+                </Text>
+
+                <View style={styles.countBadge}>
+                  <Text style={styles.countText}>
+                    {grouped[category].length}
+                  </Text>
+                </View>
+              </View>
+
+              {/* TASK LIST */}
+              <View style={styles.taskList}>
+                {grouped[category].map((task) => (
+                  <TaskCard
+                    key={task.assignment_id}
+                    task={{
+                      id: task.assignment_id,
+                      title: task.task.description,
+                      completed: task.status === "completed",
+                      selected: task.selected,
+                      time: task.task.scheduled_time,
+                    }}
+                    onToggle={() => handleToggle(task)}
+                  />
+                ))}
+              </View>
+
+            </View>
           ))}
+
         </View>
       </ScrollView>
 
-      {/* ✅ COMPLETE FAB */}
+      {/* FAB */}
       {selectedCount > 0 && (
         <Animated.View
           style={[
             styles.completeFabContainer,
-            {
-              transform: [{ scale: fabScale }],
-              opacity: fabScale,
-            },
+            { transform: [{ scale: fabScale }] },
           ]}
         >
-          <TouchableOpacity
-            style={styles.completeFab}
-            onPress={handleComplete}
-          >
-            <Text style={styles.fabIcon}>✓</Text>
-
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{selectedCount}</Text>
-            </View>
+          <TouchableOpacity style={styles.completeFab}>
+            <Text style={{ color: "#fff", fontSize: 18 }}>✓</Text>
           </TouchableOpacity>
         </Animated.View>
       )}
 
-      {/*  ADD TASK FAB */}
-      <TouchableOpacity
-        style={styles.addFab}
-        onPress={() => setModalVisible(true)}
-      >
-        <Text style={styles.addIcon}>＋</Text>
-      </TouchableOpacity>
-
-      {/*  ADD TASK MODAL */}
+      {/* MODAL */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Add New Task</Text>
+
+            <TouchableOpacity
+              onPress={() => setModalVisible(false)}
+              style={styles.closeBtn}
+            >
+              <Text style={styles.closeText}>✕</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.modalTitle}>
+              Add Observation (Optional)
+            </Text>
 
             <TextInput
-              placeholder="Enter task..."
-              value={newTask}
-              onChangeText={setNewTask}
+              placeholder="Write notes..."
+              value={note}
+              onChangeText={setNote}
               style={styles.input}
             />
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={() => setModalVisible(false)}
-              >
-                <Text>Cancel</Text>
+            <View style={styles.modalButtonContainer}>
+
+              <TouchableOpacity onPress={pickImage} style={styles.buttonPrimary}>
+                <Text style={{ color: "#fff", fontWeight: "600" }}>
+                  Pick Image
+                </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.addBtn}
-                onPress={handleAddTask}
-              >
-                <Text style={{ color: "#fff" }}>Add</Text>
+              {image && (
+                <Image source={{ uri: image }} style={styles.preview} />
+              )}
+
+              <TouchableOpacity onPress={handleSubmit} style={styles.buttonSuccess}>
+                <Text style={{ color: "#fff", fontWeight: "600" }}>
+                  Save Observation
+                </Text>
               </TouchableOpacity>
+
             </View>
+
+
           </View>
         </View>
       </Modal>
+
     </SafeAreaView>
   );
 }
 
+
 const styles = StyleSheet.create({
+
+  modalButtonContainer: {
+    marginTop: 10,
+    gap: 12,   // 👈 THIS creates spacing between buttons
+    alignItems: "center",
+  },
+  categoryBlock: {
+    marginTop: 18,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+
+  categoryHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+
+  taskList: {
+    paddingLeft: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: "#e5e7eb",
+  },
+
+  countBadge: {
+    backgroundColor: "#111",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+
+  countText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+
+  closeBtn: {
+    position: "absolute",
+    right: 12,
+    top: 12,
+    zIndex: 10,
+  },
+
+  closeText: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  categoryTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "#111",
+  },
+
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  retryBtn: {
+    backgroundColor: "black",
+    padding: 10,
+    borderRadius: 8,
+  },
+
+  imageBtn: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+
+    alignSelf: "center",   // 👈 prevents full stretch
+    minWidth: 140,         // 👈 consistent button size
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  preview: {
+    width: "100%",
+    height: 180,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
   container: {
     flex: 1,
     backgroundColor: "#f8fafc",
@@ -258,8 +459,17 @@ const styles = StyleSheet.create({
 
   modalBox: {
     backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 20,
+    padding: 18,
+
+    width: "100%",
+    maxWidth: 420,
+    alignSelf: "center",
+
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
 
   modalTitle: {
@@ -288,8 +498,42 @@ const styles = StyleSheet.create({
 
   addBtn: {
     backgroundColor: "#22c55e",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+
+    alignSelf: "center",   // 👈 stops stretch
+    minWidth: 120,         // 👈 consistent button size
+    alignItems: "center",  // 👈 centers text
+    justifyContent: "center",
+  },
+  buttonPrimary: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+
+    alignSelf: "center",
+    minWidth: 160,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    flexDirection: "row",
+  },
+
+  buttonSuccess: {
+    backgroundColor: "#22c55e",
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+
+    alignSelf: "center",
+    minWidth: 160,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    flexDirection: "row",
   },
 });

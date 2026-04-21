@@ -23,8 +23,10 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(0);
   const [timer, setTimer] = useState(0);
+  const [otpVerified, setOtpVerified] = useState(false);
   const [otpType, setOtpType] = useState<"sms" | "whatsapp" | null>(null);
   const router = useRouter();
+
 
   // ⏱ Timer logic
   useEffect(() => {
@@ -78,12 +80,15 @@ export default function LoginScreen() {
       });
 
       if (res.data.success) {
-        router.push("/(scanner)");
+        setOtpVerified(true);
+        // router.push("/(scanner)");
       } else {
+        setOtpVerified(false);
         setError("Invalid OTP. Please try again.");
       }
 
     } catch (err: any) {
+      setOtpVerified(false);
       setError(
         err?.response?.data?.message ||
         "OTP verification failed or no internet connection."
@@ -91,6 +96,7 @@ export default function LoginScreen() {
       console.log("Verify error", err);
     } finally {
       setLoading(false);
+
     }
   };
   const handleResend = () => {
@@ -169,6 +175,7 @@ export default function LoginScreen() {
                   onBack={handleBack}
                   loading={loading}
                   timer={timer}
+                  otpVerified={otpVerified}
                   onResend={handleResend}
                 />
               )}

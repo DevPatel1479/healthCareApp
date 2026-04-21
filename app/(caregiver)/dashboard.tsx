@@ -14,11 +14,12 @@ import {
   Image,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-
+import { connectSocket, getSocket, disconnectSocket } from "@/services/socket";
 import StatsHeader from "@/components/dashboard/StatsHeader";
 import TaskCard from "@/components/dashboard/TaskCard";
 
-const API_URL = "http://10.148.248.206:3000/api/caregiver/4/tasks";
+const API_URL = "https://f2b1-103-250-137-91.ngrok-free.app/api/caregiver/4/tasks";
+const UPDATE_API = "https://f2b1-103-250-137-91.ngrok-free.app/api/tasks/update-status";
 
 
 type TaskAssignment = {
@@ -41,7 +42,10 @@ type GroupedTasks = Record<string, TaskAssignment[]>;
 
 export default function CaregiverDashboard() {
   const { width, height } = useWindowDimensions();
+  const [updating, setUpdating] = useState(false);
 
+  const [showBanner, setShowBanner] = useState(false);
+  const bannerAnim = useRef(new Animated.Value(-80)).current;
   // const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   // const [error, setError] = useState("");
@@ -56,6 +60,85 @@ export default function CaregiverDashboard() {
   // const [image, setImage] = useState(null);
 
   const fabScale = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const caregiverId = 4; // 🔥 replace with logged-in user later
+
+    const socket = connectSocket(caregiverId);
+
+    // 🔥 LISTEN FOR TASK UPDATE
+    socket.on("task_updated", (updatedTask) => {
+      console.log("📡 Task updated via socket:", updatedTask);
+
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.assignment_id === updatedTask.assignment_id
+            ? { ...t, ...updatedTask }
+            : t
+        )
+      );
+    });
+    const CAREGIVER_ID = 4;
+    // 🔥 LISTEN FOR NEW TASK ASSIGNMENT
+    socket.on("task_assigned", (newTask) => {
+      console.log("🆕 New task received:", newTask);
+      setShowBanner(true);
+
+      Animated.timing(bannerAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+
+      // auto hide after 3 sec
+      setTimeout(() => {
+        Animated.timing(bannerAnim, {
+          toValue: -80,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => setShowBanner(false));
+      }, 3000);
+      // ✅ 1. SAFETY FILTER (even though room exists)
+      if (newTask.caregiver_id !== CAREGIVER_ID) return;
+
+      setTasks((prev) => {
+        // ✅ 2. PREVENT DUPLICATE
+        const exists = prev.some(
+          (t) => t.assignment_id === newTask.assignment_id
+        );
+        if (exists) return prev;
+
+        // ✅ 3. NORMALIZE STRUCTURE (VERY IMPORTANT)
+        const formattedTask = {
+          assignment_id: newTask.assignment_id,
+          status: newTask.status,
+          time_done: newTask.time_done,
+          flag_level: newTask.flag_level,
+          observation: newTask.observation,
+          selected: false,
+
+          // 🔥 your UI expects "task"
+          task: newTask.task,
+        };
+
+        // ✅ 4. ADD + SORT (latest first)
+        const updated = [...prev, formattedTask];
+
+        return updated.sort(
+          (a, b) =>
+            new Date(b.time_done || 0).getTime() -
+            new Date(a.time_done || 0).getTime()
+        );
+      });
+    });
+    return () => {
+      socket.off("task_updated");
+      socket.off("task_assigned");
+      disconnectSocket(); // cleanup
+    };
+  }, []);
+
+
+
 
   // ---------------- FETCH TASKS ----------------
   const fetchTasks = async () => {
@@ -96,14 +179,6 @@ export default function CaregiverDashboard() {
   const handleToggle = (item: TaskAssignment) => {
     if (item.status === "completed") return;
 
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.assignment_id === item.assignment_id
-          ? { ...t, selected: !t.selected }
-          : t
-      )
-    );
-
     setSelectedTask(item);
     setModalVisible(true);
   };
@@ -122,14 +197,53 @@ export default function CaregiverDashboard() {
   };
 
   // ---------------- COMPLETE (DUMMY) ----------------
-  const handleSubmit = () => {
-    console.log("NOTE:", note);
-    console.log("IMAGE:", image);
-    console.log("TASK:", selectedTask);
+  const handleSubmit = async () => {
+    if (!selectedTask) return;
 
-    setModalVisible(false);
-    setNote("");
-    setImage(null);
+    try {
+      setUpdating(true);
+
+      // 🔥 CALL BACKEND
+      const res = await fetch(UPDATE_API, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          assignment_id: selectedTask.assignment_id,
+          caregiver_id: 4,
+          status: "completed",
+          observation: note || null,
+          photo_evidence: image || null,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!json.success) throw new Error(json.message);
+
+      const updatedTask = json.data;
+
+      // 🔥 OPTIMISTIC UI UPDATE (instant)
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.assignment_id === updatedTask.assignment_id
+            ? { ...t, ...updatedTask }
+            : t
+        )
+      );
+
+      // 🔥 RESET UI
+      setModalVisible(false);
+      setNote("");
+      setImage(null);
+      setSelectedTask(null);
+
+    } catch (err: any) {
+      alert(err.message || "Update failed");
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const selectedCount = tasks.filter((t) => t.selected).length;
@@ -177,8 +291,23 @@ export default function CaregiverDashboard() {
           paddingBottom: height * 0.14,
         }}
       >
-        <View style={{ paddingHorizontal: width * 0.05 }}>
 
+        <View style={{ paddingHorizontal: width * 0.05 }}>
+          {showBanner && (
+            <Animated.View
+              style={[
+                styles.banner,
+                { transform: [{ translateY: bannerAnim }] },
+              ]}
+            >
+              <Text style={styles.bannerText}>🆕 New Task Assigned</Text>
+            </Animated.View>
+          )}
+          <TouchableOpacity onPress={fetchTasks} style={styles.refreshBtn}>
+            <Text style={{ color: "#fff", fontWeight: "600" }}>
+              Refresh Tasks
+            </Text>
+          </TouchableOpacity>
           <StatsHeader
             completed={tasks.filter((t) => t.status === "completed").length}
             total={tasks.length}
@@ -273,10 +402,18 @@ export default function CaregiverDashboard() {
                 <Image source={{ uri: image }} style={styles.preview} />
               )}
 
-              <TouchableOpacity onPress={handleSubmit} style={styles.buttonSuccess}>
-                <Text style={{ color: "#fff", fontWeight: "600" }}>
-                  Save Observation
-                </Text>
+              <TouchableOpacity
+                onPress={handleSubmit}
+                style={styles.buttonSuccess}
+                disabled={updating}
+              >
+                {updating ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={{ color: "#fff", fontWeight: "600" }}>
+                    Save Observation
+                  </Text>
+                )}
               </TouchableOpacity>
 
             </View>
@@ -341,7 +478,13 @@ const styles = StyleSheet.create({
     top: 12,
     zIndex: 10,
   },
-
+  refreshBtn: {
+    backgroundColor: "#111",
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+    marginBottom: 12,
+  },
   closeText: {
     fontSize: 20,
     fontWeight: "bold",
@@ -456,7 +599,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
+  banner: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#22c55e",
+    padding: 14,
+    zIndex: 999,
+    alignItems: "center",
+  },
 
+  bannerText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
   modalBox: {
     backgroundColor: "#fff",
     borderRadius: 20,

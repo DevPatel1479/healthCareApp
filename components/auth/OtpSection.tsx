@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useRouter } from "expo-router";
 import {
   StyleSheet,
   Text,
@@ -17,8 +18,10 @@ export default function OtpSection({
   loading,
   timer,
   onResend,
+  otpVerified,
 
 }: any) {
+  const router = useRouter();
   const inputs = useRef<TextInput[]>([]);
   const hiddenInput = useRef<TextInput>(null);
   const digits = Array(6)
@@ -127,13 +130,34 @@ export default function OtpSection({
           })}
       </View>
 
-      <AppButton
-        title="Verify OTP"
-        onPress={onVerify}
-        loading={loading}
-        disabled={!isComplete || loading}
-      />
+      {!otpVerified ? (
+        <AppButton
+          title="Verify OTP"
+          onPress={onVerify}
+          loading={loading}
+          disabled={!isComplete || loading}
+        />
+      ) : (
+        <View style={styles.roleContainer}>
 
+          {/* PATIENT */}
+          <TouchableOpacity
+            style={styles.patientBtn}
+            onPress={() => router.replace("/(patient)/dashboard")}
+          >
+            <Text style={styles.roleText}>Continue as Patient</Text>
+          </TouchableOpacity>
+
+          {/* CAREGIVER */}
+          <TouchableOpacity
+            style={styles.caregiverBtn}
+            onPress={() => router.replace("/(scanner)")}
+          >
+            <Text style={styles.roleText}>Continue as Caregiver</Text>
+          </TouchableOpacity>
+
+        </View>
+      )}
 
       <TouchableOpacity
         onPress={onResend}
@@ -160,6 +184,30 @@ export default function OtpSection({
 }
 
 const styles = StyleSheet.create({
+  roleContainer: {
+    marginTop: 20,
+    gap: 12,
+  },
+
+  patientBtn: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+
+  caregiverBtn: {
+    backgroundColor: "#22c55e",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+
+  roleText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
   info: {
     textAlign: "center",
     marginBottom: 15,

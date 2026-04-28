@@ -13,8 +13,10 @@ import {
 } from "react-native";
 
 import axios from 'axios';
+import { ENDPOINTS } from "@/api/endpoints";
+import AsyncStorage from "@react-native-async-storage/async-storage/lib/typescript/AsyncStorage";
 
-const BASE_URL = "https://health-care-backend-eight.vercel.app/api";
+
 
 export default function LoginScreen() {
   const [error, setError] = useState<string>("");
@@ -31,14 +33,15 @@ export default function LoginScreen() {
   // ⏱ Timer logic
   useEffect(() => {
     let interval: any;
-    if (timer > 0) {
+
+    if (timer > 0 && !otpVerified) {   // 👈 add this condition
       interval = setInterval(() => {
         setTimer((prev) => prev - 1);
       }, 1000);
     }
-    return () => clearInterval(interval);
-  }, [timer]);
 
+    return () => clearInterval(interval);
+  }, [timer, otpVerified]); // 👈 add dependency
 
   // 📩 SEND OTP API
   const handleSend = async (type: "sms" | "whatsapp") => {
@@ -47,7 +50,7 @@ export default function LoginScreen() {
       setError("");
       setOtpType(type);
 
-      await axios.post(`${BASE_URL}/send-otp`, {
+      await axios.post(ENDPOINTS.sendOtp(), {
         phone,
         type
       });
@@ -66,21 +69,23 @@ export default function LoginScreen() {
     }
   };
 
-
-
+  
   // ✅ VERIFY OTP API
   const handleVerify = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const res = await axios.post(`${BASE_URL}/verify-otp`, {
+      const res = await axios.post(ENDPOINTS.verifyOtp(), {
         phone,
         otp,
       });
 
       if (res.data.success) {
         setOtpVerified(true);
+
+        setTimer(0);
+
         // router.push("/(scanner)");
       } else {
         setOtpVerified(false);
@@ -100,8 +105,8 @@ export default function LoginScreen() {
     }
   };
   const handleResend = () => {
-    if (timer === 0 && otpType) {
-      handleSend(otpType); // ✅ now correct
+    if (timer === 0 && otpType && !otpVerified) { // 👈 block after success
+      handleSend(otpType);
     }
   };
   const handleBack = () => {

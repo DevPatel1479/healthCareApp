@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useRouter } from "expo-router";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   StyleSheet,
   Text,
@@ -88,6 +89,29 @@ export default function OtpSection({
 
 
 
+  const handleLogin = async (role: "patient" | "caregiver") => {
+    try {
+      const userData = {
+        isLoggedIn: true,
+        phone: phone,
+        role: role,
+      };
+
+      await AsyncStorage.setItem("user", JSON.stringify(userData));
+
+      // 🚀 Navigate based on role
+      if (role === "patient") {
+        router.replace("/(patient)/dashboard");
+      } else {
+        router.replace("/(scanner)");
+      }
+
+    } catch (e) {
+      console.log("Storage error", e);
+    }
+  };
+
+
   return (
     <View>
       <Text style={styles.info}>
@@ -143,15 +167,15 @@ export default function OtpSection({
           {/* PATIENT */}
           <TouchableOpacity
             style={styles.patientBtn}
-            onPress={() => router.replace("/(patient)/dashboard")}
+            onPress={() => handleLogin("patient")}
           >
-            <Text style={styles.roleText}>Continue as Patient</Text>
+            <Text style={styles.roleText}>Continue as Client</Text>
           </TouchableOpacity>
 
           {/* CAREGIVER */}
           <TouchableOpacity
             style={styles.caregiverBtn}
-            onPress={() => router.replace("/(scanner)")}
+            onPress={() => handleLogin("caregiver")}
           >
             <Text style={styles.roleText}>Continue as Caregiver</Text>
           </TouchableOpacity>
@@ -161,12 +185,14 @@ export default function OtpSection({
 
       <TouchableOpacity
         onPress={onResend}
-        disabled={timer > 0}
+        disabled={timer > 0 || otpVerified}
       >
         <Text style={styles.resend}>
-          {timer > 0
-            ? `Resend OTP in ${timer}s`
-            : "Resend OTP"}
+          {otpVerified
+            ? "OTP Verified"
+            : timer > 0
+              ? `Resend OTP in ${timer}s`
+              : "Resend OTP"}
         </Text>
       </TouchableOpacity>
 

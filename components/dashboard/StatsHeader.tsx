@@ -1,11 +1,12 @@
 import { StyleSheet, Text, View } from "react-native";
 
-export default function StatsHeader({ completed, total }: any) {
+export default function StatsHeader({ completed, total, title, }: any) {
   const pending = total - completed;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Today’s Care Tasks</Text>
+      <Text style={styles.title}>{title}</Text>
+
 
       <View style={styles.row}>
         <View style={styles.box}>
@@ -27,9 +28,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   title: {
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: "bold",
     marginBottom: 15,
+    color: "#111827",
   },
   row: {
     flexDirection: "row",

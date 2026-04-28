@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { Alert } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
 import {
   Animated,
   ActivityIndicator,
@@ -17,9 +20,10 @@ import * as ImagePicker from "expo-image-picker";
 import { connectSocket, getSocket, disconnectSocket } from "@/services/socket";
 import StatsHeader from "@/components/dashboard/StatsHeader";
 import TaskCard from "@/components/dashboard/TaskCard";
+import { ENDPOINTS } from "@/api/endpoints";
+import { Ionicons } from "@expo/vector-icons";
 
-const API_URL = "https://f2b1-103-250-137-91.ngrok-free.app/api/caregiver/4/tasks";
-const UPDATE_API = "https://f2b1-103-250-137-91.ngrok-free.app/api/tasks/update-status";
+
 
 
 type TaskAssignment = {
@@ -29,18 +33,30 @@ type TaskAssignment = {
   flag_level: "green" | "yellow" | "red";
   observation: string | null;
   selected?: boolean;
+  caregiver?: {
+    id: number;
+    name: string;
+    phone: string;
+  } | null;
+  patient?: {
+    id: number;
+    name: string;
+    phone: string;
+  } | null;
   task: {
     task_id: number;
     description: string;
     task_category: string;
     scheduled_time: string | null;
     clinical_notes: string | null;
+
   };
 };
 
 type GroupedTasks = Record<string, TaskAssignment[]>;
 
 export default function CaregiverDashboard() {
+  const router = useRouter();
   const { width, height } = useWindowDimensions();
   const [updating, setUpdating] = useState(false);
 
@@ -57,8 +73,36 @@ export default function CaregiverDashboard() {
   const [modalVisible, setModalVisible] = useState(false);
   // const [selectedTask, setSelectedTask] = useState(null);
   const [note, setNote] = useState("");
+  const [patientModal, setPatientModal] = useState(false);
   // const [image, setImage] = useState(null);
+  const patientInfo = tasks[0]?.patient ?? null;
 
+  const caregiverInfo = tasks[0]?.caregiver ?? null;
+  const handleLogout = () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await AsyncStorage.removeItem("user"); // ✅ clear stored user
+              router.replace("/(auth)/login");       // ✅ redirect
+            } catch (e) {
+              console.log("Logout error", e);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
   const fabScale = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const caregiverId = 4; // 🔥 replace with logged-in user later
@@ -146,7 +190,7 @@ export default function CaregiverDashboard() {
       setLoading(true);
       setError("");
 
-      const res = await fetch(API_URL);
+      const res = await fetch(ENDPOINTS.getCaregiverTasks("4"));
       const json = await res.json();
 
       if (!json.success) throw new Error(json.message || "Failed to load");
@@ -204,7 +248,7 @@ export default function CaregiverDashboard() {
       setUpdating(true);
 
       // 🔥 CALL BACKEND
-      const res = await fetch(UPDATE_API, {
+      const res = await fetch(ENDPOINTS.updateTasksStatus(), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -303,14 +347,68 @@ export default function CaregiverDashboard() {
               <Text style={styles.bannerText}>🆕 New Task Assigned</Text>
             </Animated.View>
           )}
-          <TouchableOpacity onPress={fetchTasks} style={styles.refreshBtn}>
-            <Text style={{ color: "#fff", fontWeight: "600" }}>
-              Refresh Tasks
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.topBar}>
+            <View style={styles.profileCard}>
+              <View style={styles.avatarContainer}>
+                <Ionicons
+                  name="person-circle"
+                  size={52}
+                  color="#2563eb"
+                />
+              </View>
+
+              <View style={styles.profileInfo}>
+                <Text style={styles.welcomeText}>
+                  Welcome Back
+                </Text>
+
+                <Text style={styles.profileName}>
+                  {caregiverInfo?.name || "Caregiver"}
+                </Text>
+
+                <TouchableOpacity
+                  onPress={() => setPatientModal(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.viewPatientText}>
+                    View Patient Details
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.topActions}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={fetchTasks}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="refresh-outline"
+                  size={24}
+                  color="#111827"
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={handleLogout}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="log-out-outline"
+                  size={24}
+                  color="#dc2626"
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
           <StatsHeader
+
             completed={tasks.filter((t) => t.status === "completed").length}
             total={tasks.length}
+            title="Caregiver Dashboard"
+
           />
 
           {/* GROUPED TASKS */}
@@ -422,14 +520,324 @@ export default function CaregiverDashboard() {
           </View>
         </View>
       </Modal>
+      <Modal
+        visible={patientModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPatientModal(false)}
+      >
+        <View style={styles.patientModalOverlay}>
+          <View style={styles.patientModalCard}>
 
+            <TouchableOpacity
+              style={styles.patientCloseBtn}
+              onPress={() => setPatientModal(false)}
+            >
+              <Ionicons name="close" size={24} color="#111827" />
+            </TouchableOpacity>
+
+            <View style={styles.patientHeader}>
+              <Ionicons
+                name="person-circle"
+                size={72}
+                color="#2563eb"
+              />
+              <Text style={styles.patientTitle}>
+                Patient Details
+              </Text>
+              <Text style={styles.patientSubtitle}>
+                Assigned Patient Information
+              </Text>
+            </View>
+
+            {patientInfo ? (
+              <>
+                <View style={styles.patientInfoCard}>
+                  <View style={styles.patientRow}>
+                    <Ionicons
+                      name="person-outline"
+                      size={22}
+                      color="#2563eb"
+                    />
+                    <Text style={styles.patientValue}>
+                      {patientInfo.name}
+                    </Text>
+                  </View>
+
+                  <View style={styles.patientDivider} />
+
+                  <View style={styles.patientRow}>
+                    <Ionicons
+                      name="call-outline"
+                      size={22}
+                      color="#16a34a"
+                    />
+                    <Text style={styles.patientValue}>
+                      {patientInfo.phone}
+                    </Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.closePatientButton}
+                  onPress={() => setPatientModal(false)}
+                >
+                  <Text style={styles.closePatientButtonText}>
+                    Done
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={styles.emptyPatientState}>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={48}
+                  color="#9ca3af"
+                />
+                <Text style={styles.emptyPatientText}>
+                  No patient assigned yet
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+      {/* 🔴 LOGOUT FAB */}
+      <TouchableOpacity style={styles.logoutFab} onPress={handleLogout}>
+        <Text style={styles.logoutText}>⎋</Text>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
 
 const styles = StyleSheet.create({
+  profileName: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111827",
+    marginTop: 2,
+    flexShrink: 1, // allows full name to wrap if needed
+  },
 
+  viewPatientText: {
+    fontSize: 14,
+    color: "#2563eb",
+    fontWeight: "600",
+    marginTop: 6,
+  },
+  profileRole: {
+    fontSize: 12,
+    color: "#2563eb",
+    marginTop: 4,
+    fontWeight: "600",
+  },
+
+  patientModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    padding: 24,
+  },
+
+  patientModalCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+
+  patientCloseBtn: {
+    position: "absolute",
+    top: 18,
+    right: 18,
+    zIndex: 10,
+  },
+
+  patientHeader: {
+    alignItems: "center",
+    marginBottom: 28,
+  },
+
+  patientTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#111827",
+    marginTop: 12,
+  },
+
+  patientSubtitle: {
+    fontSize: 15,
+    color: "#6b7280",
+    marginTop: 6,
+  },
+
+  patientInfoCard: {
+    backgroundColor: "#f8fafc",
+    borderRadius: 22,
+    padding: 20,
+    marginBottom: 24,
+  },
+
+  patientRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  patientValue: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+    marginLeft: 14,
+    flex: 1,
+  },
+
+  patientDivider: {
+    height: 1,
+    backgroundColor: "#e5e7eb",
+    marginVertical: 18,
+  },
+
+  closePatientButton: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 16,
+    borderRadius: 18,
+    alignItems: "center",
+  },
+
+  closePatientButtonText: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+
+  emptyPatientState: {
+    alignItems: "center",
+    paddingVertical: 20,
+  },
+
+  emptyPatientText: {
+    marginTop: 14,
+    fontSize: 16,
+    color: "#6b7280",
+  },
+  avatarContainer: {
+    marginRight: 12,
+  },
+
+  profileInfo: {
+    flex: 1,
+  },
+
+  welcomeText: {
+    fontSize: 12,
+    color: "#6b7280",
+  },
+
+
+
+  profileSubText: {
+    fontSize: 12,
+    color: "#2563eb",
+    marginTop: 2,
+  },
+
+  profileCard: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    padding: 12,
+    borderRadius: 18,
+    marginRight: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+
+  topActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  actionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#ffffff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+
+  leftActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+
+  iconBtn: {
+    backgroundColor: "#ffffff",
+    padding: 10,
+    borderRadius: 20,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+
+  infoModal: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    width: "90%",
+    maxWidth: 380,
+    alignSelf: "center",
+  },
+
+  infoTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    marginBottom: 20,
+    color: "#111",
+  },
+
+  infoText: {
+    fontSize: 17,
+    color: "#374151",
+    marginBottom: 12,
+  },
+  logoutFab: {
+    position: "absolute",
+    bottom: 20,
+    left: 20,   // 👈 opposite side of your green FAB
+    height: 56,
+    width: 56,
+    borderRadius: 28,
+    backgroundColor: "#111",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 8,
+  },
+
+  logoutText: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "bold",
+  },
   modalButtonContainer: {
     marginTop: 10,
     gap: 12,   // 👈 THIS creates spacing between buttons

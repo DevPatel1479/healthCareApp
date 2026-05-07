@@ -189,7 +189,9 @@ function ReportCard({
 
             <CardRow label="Completed">
                 <Text style={styles.cardValue}>
-                    {new Date(item.completed_at).toLocaleString()}
+                    {item.completed_at
+                        ?.replace("T", " ")
+                        ?.replace(".000Z", "")}
                 </Text>
             </CardRow>
 
@@ -303,7 +305,9 @@ export default function PatientReportScreen() {
         return reports.map((item, index) => [
             index + 1,
             item.task_description,
-            new Date(item.completed_at).toLocaleString(),
+            item.completed_at
+                ?.replace("T", " ")
+                ?.replace(".000Z", ""),
             item.caregiver?.full_name ?? "N/A",
             item.observation_notes ?? "N/A",
             item.photo_proof?.startsWith("https") ? "Yes" : "No",
@@ -318,7 +322,9 @@ export default function PatientReportScreen() {
                 <tr>
                     <td>${index + 1}</td>
                     <td>${item.task_description}</td>
-                    <td>${new Date(item.completed_at).toLocaleString()}</td>
+                    <td>${item.completed_at
+                            ?.replace("T", " ")
+                            ?.replace(".000Z", "")}</td>
                     <td>${item.caregiver?.full_name ?? "N/A"}</td>
                     <td>${item.observation_notes ?? "N/A"}</td>
                     <td>${item.photo_proof?.startsWith("https")

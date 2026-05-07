@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
     ActivityIndicator,
+    Keyboard,
     Modal,
     SafeAreaView,
     ScrollView,
@@ -60,6 +61,23 @@ export default function PatientDashboard() {
     const [taskInput, setTaskInput] = useState("");
     const caregiver = tasks.find(t => t.caregiver)?.caregiver;
     const [caregiverModal, setCaregiverModal] = useState(false);
+    const [selectedCategory, setSelectedCategory] = useState(
+        "Daily_Routine"
+    );
+    const categoryOptions = [
+        {
+            label: "Daily / Routine Task",
+            value: "Daily_Routine",
+        },
+        {
+            label: "Unplanned / As and When Required",
+            value: "Unplanned_As_Required",
+        },
+        {
+            label: "Periodic",
+            value: "Periodic",
+        },
+    ];
     const patientName =
         tasks[0]?.patient?.name?.trim() || "Client";
     useEffect(() => {
@@ -153,36 +171,75 @@ export default function PatientDashboard() {
 
     // ---------------- CREATE TASK ----------------
     const handleCreateTask = async () => {
-        if (!taskInput.trim()) return;
+
+        if (!taskInput.trim()) {
+
+            Alert.alert(
+                "Validation",
+                "Please enter task description"
+            );
+
+            return;
+        }
 
         try {
+
             setCreating(true);
 
-            const res = await fetch(ENDPOINTS.createPatientTask(), {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    description: taskInput,
-                    scheduled_time: null,
-                }),
-            });
+            const res = await fetch(
+                ENDPOINTS.createPatientTask(),
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+
+                    body: JSON.stringify({
+
+                        description: taskInput,
+
+                        scheduled_time: null,
+
+                        // ✅ send enum exactly as backend expects
+                        task_category: selectedCategory,
+                    }),
+                }
+            );
 
             const json = await res.json();
 
-            if (!json.success) throw new Error(json.message);
+            if (!json.success) {
 
-            // ✅ refresh list
+                throw new Error(
+                    json.message || "Failed to create task"
+                );
+            }
+
+            // refresh
             await fetchTasks(false);
 
-            // ✅ reset UI
+            // reset
             setModalVisible(false);
+
             setTaskInput("");
 
+            setSelectedCategory("Daily_Routine");
+
+            Alert.alert(
+                "Success",
+                "Task created successfully"
+            );
+
         } catch (err: any) {
-            Alert.alert("Error", err.message || "Something went wrong");
+
+            Alert.alert(
+                "Error",
+                err.message || "Something went wrong"
+            );
+
         } finally {
+
             setCreating(false);
         }
     };
@@ -417,38 +474,137 @@ export default function PatientDashboard() {
             </TouchableOpacity>
 
             {/* CREATE TASK MODAL */}
-            <Modal visible={modalVisible} transparent animationType="slide">
-                <TouchableOpacity
-                    style={styles.modalCloseBtn}
-                    onPress={() => setModalVisible(false)}
-                >
-                    <Ionicons name="close" size={24} color="#111" />
-                </TouchableOpacity>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalBox}>
+            <Modal
+                visible={modalVisible}
+                transparent
+                animationType="slide"
+            >
 
-                        <Text style={styles.modalTitle}>Create Task</Text>
+                <View style={styles.modalOverlay}>
+
+                    <View style={styles.createTaskModalBox}>
+
+                        {/* HEADER */}
+                        <View style={styles.createTaskHeader}>
+
+                            <Text style={styles.createTaskTitle}>
+                                Create New Task
+                            </Text>
+
+                            <TouchableOpacity
+                                onPress={() => setModalVisible(false)}
+                            >
+                                <Ionicons
+                                    name="close"
+                                    size={24}
+                                    color="#111827"
+                                />
+                            </TouchableOpacity>
+
+                        </View>
+
+                        {/* TASK INPUT */}
+                        <Text style={styles.inputLabel}>
+                            Task Description
+                        </Text>
 
                         <TextInput
-                            placeholder="Enter task..."
+                            placeholder="Enter task description..."
                             value={taskInput}
                             onChangeText={setTaskInput}
-                            style={styles.input}
+                            returnKeyType="done"
+                            multiline
+                            onBlur={() => {
+                                // treat as "done editing"
+                            }}
+                            style={styles.createTaskInput}
+                            placeholderTextColor="#9ca3af"
                         />
 
+                        {/* CATEGORY */}
+                        <Text style={styles.inputLabel}>
+                            Task Category
+                        </Text>
+
+                        <View style={styles.categoryContainer}>
+
+                            {categoryOptions.map((item) => {
+
+                                const selected =
+                                    selectedCategory === item.value;
+
+                                return (
+
+                                    <TouchableOpacity
+                                        key={item.value}
+                                        activeOpacity={0.85}
+                                        style={[
+                                            styles.categoryOption,
+                                            selected &&
+                                            styles.categoryOptionActive
+                                        ]}
+                                        onPress={() =>
+                                            setSelectedCategory(item.value)
+                                        }
+                                    >
+
+                                        <View
+                                            style={[
+                                                styles.radioOuter,
+                                                selected &&
+                                                styles.radioOuterActive
+                                            ]}
+                                        >
+                                            {selected && (
+                                                <View
+                                                    style={styles.radioInner}
+                                                />
+                                            )}
+                                        </View>
+
+                                        <Text
+                                            style={[
+                                                styles.categoryOptionText,
+                                                selected &&
+                                                styles.categoryOptionTextActive
+                                            ]}
+                                        >
+                                            {item.label}
+                                        </Text>
+
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        {/* CREATE BUTTON */}
                         <TouchableOpacity
                             onPress={handleCreateTask}
-                            style={styles.buttonSuccess}
+                            style={styles.createTaskBtn}
                             disabled={creating}
+                            activeOpacity={0.85}
                         >
+
                             {creating ? (
                                 <ActivityIndicator color="#fff" />
                             ) : (
-                                <Text style={{ color: "#fff" }}>Create</Text>
+                                <>
+                                    <Ionicons
+                                        name="add-circle-outline"
+                                        size={20}
+                                        color="#fff"
+                                    />
+
+                                    <Text style={styles.createTaskBtnText}>
+                                        Create Task
+                                    </Text>
+                                </>
                             )}
+
                         </TouchableOpacity>
 
                     </View>
+
                 </View>
             </Modal>
             <Modal visible={caregiverModal} transparent animationType="fade">
@@ -566,6 +722,122 @@ export default function PatientDashboard() {
 
 
 const styles = StyleSheet.create({
+    createTaskModalBox: {
+        width: "100%",
+        backgroundColor: "#fff",
+
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+
+        padding: 22,
+
+        maxHeight: "85%",
+    },
+    createTaskHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: 20,
+    },
+
+    createTaskTitle: {
+        fontSize: 22,
+        fontWeight: "700",
+        color: "#111827",
+    },
+
+    inputLabel: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#374151",
+        marginBottom: 10,
+        marginTop: 8,
+    },
+
+    createTaskInput: {
+        borderWidth: 1,
+        borderColor: "#d1d5db",
+        borderRadius: 16,
+        padding: 16,
+        minHeight: 110,
+        fontSize: 15,
+        color: "#111827",
+        textAlignVertical: "top",
+        backgroundColor: "#f9fafb",
+    },
+
+    categoryContainer: {
+        marginTop: 6,
+        gap: 12,
+    },
+
+    categoryOption: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 14,
+        paddingHorizontal: 14,
+        borderRadius: 16,
+        borderWidth: 1.5,
+        borderColor: "#e5e7eb",
+        backgroundColor: "#fff",
+    },
+
+    categoryOptionActive: {
+        borderColor: "#2563eb",
+        backgroundColor: "#eff6ff",
+    },
+
+    categoryOptionText: {
+        marginLeft: 12,
+        fontSize: 15,
+        color: "#374151",
+        fontWeight: "500",
+        flex: 1,
+    },
+
+    categoryOptionTextActive: {
+        color: "#2563eb",
+        fontWeight: "700",
+    },
+
+    radioOuter: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        borderWidth: 2,
+        borderColor: "#9ca3af",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    radioOuterActive: {
+        borderColor: "#2563eb",
+    },
+
+    radioInner: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: "#2563eb",
+    },
+
+    createTaskBtn: {
+
+        marginTop: 24,
+        backgroundColor: "#2563eb",
+        borderRadius: 18,
+        paddingVertical: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "row",
+        gap: 10,
+    },
+
+    createTaskBtnText: {
+        color: "#fff",
+        fontWeight: "700",
+        fontSize: 16,
+    },
     reportCard: {
         backgroundColor: "#ffffff",
         marginTop: 18,
@@ -1036,11 +1308,10 @@ const styles = StyleSheet.create({
     //  MODAL
     modalOverlay: {
         flex: 1,
-        backgroundColor: "rgba(0,0,0,0.4)",
-        justifyContent: "center",
-        padding: 20,
-    },
+        backgroundColor: "rgba(0,0,0,0.5)",
 
+        justifyContent: "flex-end", // 👈 key fix (NOT center)
+    },
     modalBox: {
         backgroundColor: "#fff",
         borderRadius: 20,

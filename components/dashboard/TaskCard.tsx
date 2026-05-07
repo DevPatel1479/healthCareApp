@@ -2,24 +2,28 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 export default function TaskCard({ task, onToggle }: any) {
   return (
-    <TouchableOpacity
-      style={[
-        styles.card,
-        task.completed && styles.completedCard,
-      ]}
-      onPress={() => onToggle(task.id)}
+
+    < TouchableOpacity
+      style={
+        [
+          styles.card,
+          task.completed && styles.completedCard,
+        ]}
+      onPress={() => onToggle(task.id)
+      }
       activeOpacity={0.8}
     >
       {/* Checkbox */}
-      <View
-        style={[
-          styles.checkbox,
-          task.selected && styles.checked,
-        ]}
+      < View
+        style={
+          [
+            styles.checkbox,
+            task.selected && styles.checked,
+          ]}
       />
 
       {/* Text */}
-      <View style={{ flex: 1 }}>
+      < View style={{ flex: 1 }}>
         <Text
           style={[
             styles.text,
@@ -28,8 +32,8 @@ export default function TaskCard({ task, onToggle }: any) {
         >
           {task.title}
         </Text>
-      </View>
-    </TouchableOpacity>
+      </View >
+    </TouchableOpacity >
   );
 }
 

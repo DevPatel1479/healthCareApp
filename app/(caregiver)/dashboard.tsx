@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -55,6 +55,55 @@ type TaskAssignment = {
 
 type GroupedTasks = Record<string, TaskAssignment[]>;
 
+
+const sortTasks = (tasks: TaskAssignment[]) => {
+
+  const statusPriority: Record<string, number> = {
+    pending: 0,
+    completed: 1,
+    skipped: 1,
+    refused: 1,
+  };
+
+  return [...tasks].sort((a, b) => {
+
+    // category priority
+    const categoryOrder = [
+      "Daily_Routine",
+      "Unplanned_As_Required",
+      "Periodic",
+    ];
+
+    const categoryCompare =
+      categoryOrder.indexOf(a.task.task_category) -
+      categoryOrder.indexOf(b.task.task_category);
+
+    if (categoryCompare !== 0) {
+      return categoryCompare;
+    }
+
+    // pending first
+    const statusCompare =
+      statusPriority[a.status] -
+      statusPriority[b.status];
+
+    if (statusCompare !== 0) {
+      return statusCompare;
+    }
+
+    // time sorting
+    const timeA = a.task.scheduled_time
+      ? new Date(a.task.scheduled_time).getTime()
+      : 0;
+
+    const timeB = b.task.scheduled_time
+      ? new Date(b.task.scheduled_time).getTime()
+      : 0;
+
+    return timeA - timeB;
+  });
+};
+
 export default function CaregiverDashboard() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
@@ -75,9 +124,28 @@ export default function CaregiverDashboard() {
   const [note, setNote] = useState("");
   const [patientModal, setPatientModal] = useState(false);
   // const [image, setImage] = useState(null);
-  const patientInfo = tasks[0]?.patient ?? null;
+  const [patientInfo, setPatientInfo] = useState<TaskAssignment["patient"] | null>(null);
 
-  const caregiverInfo = tasks[0]?.caregiver ?? null;
+
+
+  const [caregiverName, setCaregiverName] = useState("Caregiver");
+  useEffect(() => {
+    const loadCaregiverName = async () => {
+      try {
+        const fullName = await AsyncStorage.getItem("full_name");
+
+        if (fullName) {
+          setCaregiverName(fullName);
+        }
+
+      } catch (err) {
+        console.log("Failed to load caregiver name", err);
+      }
+    };
+
+    loadCaregiverName();
+  }, []);
+
   const handleLogout = () => {
     Alert.alert(
       "Logout",
@@ -92,7 +160,7 @@ export default function CaregiverDashboard() {
           style: "destructive",
           onPress: async () => {
             try {
-              await AsyncStorage.removeItem("user"); // ✅ clear stored user
+              await AsyncStorage.clear();
               router.replace("/(auth)/login");       // ✅ redirect
             } catch (e) {
               console.log("Logout error", e);
@@ -105,80 +173,125 @@ export default function CaregiverDashboard() {
   };
   const fabScale = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    const caregiverId = 4; // 🔥 replace with logged-in user later
+    let socket: any;
 
-    const socket = connectSocket(caregiverId);
 
-    // 🔥 LISTEN FOR TASK UPDATE
-    socket.on("task_updated", (updatedTask) => {
-      console.log("📡 Task updated via socket:", updatedTask);
+    const initializeSocket = async () => {
+      try {
 
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.assignment_id === updatedTask.assignment_id
-            ? { ...t, ...updatedTask }
-            : t
-        )
-      );
-    });
-    const CAREGIVER_ID = 4;
-    // 🔥 LISTEN FOR NEW TASK ASSIGNMENT
-    socket.on("task_assigned", (newTask) => {
-      console.log("🆕 New task received:", newTask);
-      setShowBanner(true);
 
-      Animated.timing(bannerAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+        const referenceId = await AsyncStorage.getItem("reference_id");
 
-      // auto hide after 3 sec
-      setTimeout(() => {
-        Animated.timing(bannerAnim, {
-          toValue: -80,
-          duration: 300,
-          useNativeDriver: true,
-        }).start(() => setShowBanner(false));
-      }, 3000);
-      // ✅ 1. SAFETY FILTER (even though room exists)
-      if (newTask.caregiver_id !== CAREGIVER_ID) return;
+        if (!referenceId) {
+          console.log("Caregiver reference_id not found");
+          return;
+        }
 
-      setTasks((prev) => {
-        // ✅ 2. PREVENT DUPLICATE
-        const exists = prev.some(
-          (t) => t.assignment_id === newTask.assignment_id
-        );
-        if (exists) return prev;
 
-        // ✅ 3. NORMALIZE STRUCTURE (VERY IMPORTANT)
-        const formattedTask = {
-          assignment_id: newTask.assignment_id,
-          status: newTask.status,
-          time_done: newTask.time_done,
-          flag_level: newTask.flag_level,
-          observation: newTask.observation,
-          selected: false,
+        socket = connectSocket(Number(referenceId));
 
-          // 🔥 your UI expects "task"
-          task: newTask.task,
-        };
+        // 🔥 LISTEN FOR TASK UPDATE
+        socket.on("task_updated", (updatedTask: any) => {
+          console.log("📡 Task updated via socket:", updatedTask);
 
-        // ✅ 4. ADD + SORT (latest first)
-        const updated = [...prev, formattedTask];
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.assignment_id === updatedTask.assignment_id
+                ? { ...t, ...updatedTask }
+                : t
+            )
+          );
+        });
 
-        return updated.sort(
-          (a, b) =>
-            new Date(b.time_done || 0).getTime() -
-            new Date(a.time_done || 0).getTime()
-        );
-      });
-    });
+        // 🔥 LISTEN FOR NEW TASK ASSIGNMENT
+        socket.on("task_assigned", (newTask: any) => {
+          console.log("🆕 New task received:", newTask);
+          setShowBanner(true);
+
+          Animated.timing(bannerAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }).start();
+
+          // auto hide after 3 sec
+          setTimeout(() => {
+            Animated.timing(bannerAnim, {
+              toValue: -80,
+              duration: 300,
+              useNativeDriver: true,
+            }).start(() => setShowBanner(false));
+          }, 3000);
+          // ✅ 1. SAFETY FILTER (even though room exists)
+          if (newTask.caregiver_id !== Number(referenceId)) return;
+
+          setTasks((prev) => {
+            // ✅ 2. PREVENT DUPLICATE
+            const exists = prev.some(
+              (t) => t.assignment_id === newTask.assignment_id
+            );
+            if (exists) return prev;
+
+            // ✅ 3. NORMALIZE STRUCTURE (VERY IMPORTANT)
+            const formattedTask = {
+              assignment_id: newTask.assignment_id,
+              status: newTask.status,
+              time_done: newTask.time_done,
+              flag_level: newTask.flag_level,
+              observation: newTask.observation,
+              selected: false,
+
+              // 🔥 your UI expects "task"
+              task: newTask.task,
+            };
+
+            // ✅ 4. ADD + SORT (latest first)
+            const updated = [...prev, formattedTask];
+
+            return sortTasks(updated);
+          });
+        });
+
+        socket.on("daily_tasks_regenerated", async (data: any) => {
+
+          console.log("📡 Daily tasks regenerated:", data);
+
+          // show banner
+          setShowBanner(true);
+
+          Animated.timing(bannerAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }).start();
+
+          setTimeout(() => {
+            Animated.timing(bannerAnim, {
+              toValue: -80,
+              duration: 300,
+              useNativeDriver: true,
+            }).start(() => setShowBanner(false));
+          }, 3000);
+
+          // 🔥 IMPORTANT
+          await fetchTasks();
+        });
+      } catch (err) {
+        console.log("Socket initialization error:", err);
+      }
+    };
+
+    initializeSocket();
     return () => {
-      socket.off("task_updated");
-      socket.off("task_assigned");
+      if (socket) {
+        socket.off("task_updated");
+        socket.off("task_assigned");
+        socket.off("daily_tasks_regenerated");
+      }
+
       disconnectSocket(); // cleanup
     };
+
   }, []);
 
 
@@ -189,13 +302,15 @@ export default function CaregiverDashboard() {
     try {
       setLoading(true);
       setError("");
-
-      const res = await fetch(ENDPOINTS.getCaregiverTasks("4"));
+      const referenceId = await AsyncStorage.getItem("reference_id");
+      console.log(`Fetched caregiver id ${referenceId}`);
+      const res = await fetch(ENDPOINTS.getCaregiverTasks(Number(referenceId)));
       const json = await res.json();
 
       if (!json.success) throw new Error(json.message || "Failed to load");
 
       setTasks(json.data);
+      setPatientInfo(json.patient ?? null);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
@@ -210,14 +325,66 @@ export default function CaregiverDashboard() {
   }, []);
 
   // ---------------- GROUP BY CATEGORY ----------------
-  const grouped: GroupedTasks = tasks.reduce((acc, item) => {
-    const cat = item.task.task_category;
+  // ---------------- CATEGORY ORDER ----------------
+  const categoryOrder = [
+    "Daily_Routine",
+    "Unplanned_As_Required",
+    "Periodic",
+  ];
 
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(item);
+  // ---------------- STATUS PRIORITY ----------------
+  const statusPriority: Record<string, number> = {
+    pending: 0,
+    completed: 1,
+    skipped: 1,
+    refused: 1,
+  };
 
-    return acc;
-  }, {} as GroupedTasks);
+  // ---------------- GROUP + SORT ----------------
+  const grouped: GroupedTasks = {};
+
+  // create categories in correct order
+  categoryOrder.forEach((category) => {
+    grouped[category] = [];
+  });
+
+  // group tasks
+  tasks.forEach((task) => {
+    const category = task.task.task_category;
+
+    if (!grouped[category]) {
+      grouped[category] = [];
+    }
+
+    grouped[category].push(task);
+  });
+
+  // sort inside categories
+  Object.keys(grouped).forEach((category) => {
+
+    grouped[category].sort((a, b) => {
+
+      // ✅ pending first
+      const statusCompare =
+        statusPriority[a.status] -
+        statusPriority[b.status];
+
+      if (statusCompare !== 0) {
+        return statusCompare;
+      }
+
+      // ✅ sort by scheduled time
+      const timeA = a.task.scheduled_time
+        ? new Date(a.task.scheduled_time).getTime()
+        : 0;
+
+      const timeB = b.task.scheduled_time
+        ? new Date(b.task.scheduled_time).getTime()
+        : 0;
+
+      return timeA - timeB;
+    });
+  });
 
   // ---------------- TOGGLE ----------------
   const handleToggle = (item: TaskAssignment) => {
@@ -246,7 +413,7 @@ export default function CaregiverDashboard() {
 
     try {
       setUpdating(true);
-
+      const referenceId = await AsyncStorage.getItem("reference_id");
       // 🔥 CALL BACKEND
       const res = await fetch(ENDPOINTS.updateTasksStatus(), {
         method: "PATCH",
@@ -255,7 +422,7 @@ export default function CaregiverDashboard() {
         },
         body: JSON.stringify({
           assignment_id: selectedTask.assignment_id,
-          caregiver_id: 4,
+          caregiver_id: Number(referenceId),
           status: "completed",
           observation: note || null,
           photo_evidence: image || null,
@@ -269,13 +436,16 @@ export default function CaregiverDashboard() {
       const updatedTask = json.data;
 
       // 🔥 OPTIMISTIC UI UPDATE (instant)
-      setTasks((prev) =>
-        prev.map((t) =>
+      setTasks((prev) => {
+
+        const updated = prev.map((t) =>
           t.assignment_id === updatedTask.assignment_id
             ? { ...t, ...updatedTask }
             : t
-        )
-      );
+        );
+
+        return sortTasks(updated);
+      });
 
       // 🔥 RESET UI
       setModalVisible(false);
@@ -284,6 +454,7 @@ export default function CaregiverDashboard() {
       setSelectedTask(null);
 
     } catch (err: any) {
+      console.log("error", err);
       alert(err.message || "Update failed");
     } finally {
       setUpdating(false);
@@ -363,11 +534,14 @@ export default function CaregiverDashboard() {
                 </Text>
 
                 <Text style={styles.profileName}>
-                  {caregiverInfo?.name || "Caregiver"}
+                  {caregiverName}
                 </Text>
 
                 <TouchableOpacity
-                  onPress={() => setPatientModal(true)}
+                  onPress={() => {
+                    if (!patientInfo) return;
+                    setPatientModal(true);
+                  }}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.viewPatientText}>
@@ -412,41 +586,55 @@ export default function CaregiverDashboard() {
           />
 
           {/* GROUPED TASKS */}
-          {Object.keys(grouped).map((category) => (
-            <View key={category} style={styles.categoryBlock}>
+          {categoryOrder
+            .filter((category) => grouped[category]?.length > 0)
+            .map((category) => (
+              <View key={category} style={styles.categoryBlock}>
 
-              {/* CATEGORY HEADER */}
-              <View style={styles.categoryHeader}>
-                <Text style={styles.categoryTitle}>
-                  {formatCategory(category)}
-                </Text>
-
-                <View style={styles.countBadge}>
-                  <Text style={styles.countText}>
-                    {grouped[category].length}
+                {/* CATEGORY HEADER */}
+                <View style={styles.categoryHeader}>
+                  <Text style={styles.categoryTitle}>
+                    {formatCategory(category)}
                   </Text>
+
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countText}>
+                      {grouped[category].length}
+                    </Text>
+                  </View>
                 </View>
-              </View>
 
-              {/* TASK LIST */}
-              <View style={styles.taskList}>
-                {grouped[category].map((task) => (
-                  <TaskCard
-                    key={task.assignment_id}
-                    task={{
-                      id: task.assignment_id,
-                      title: task.task.description,
-                      completed: task.status === "completed",
-                      selected: task.selected,
-                      time: task.task.scheduled_time,
-                    }}
-                    onToggle={() => handleToggle(task)}
-                  />
-                ))}
-              </View>
+                {/* TASK LIST */}
+                <View style={styles.taskList}>
+                  {grouped[category].map((task) => (
 
-            </View>
-          ))}
+                    <View
+                      key={task.assignment_id}
+                      style={{
+                        opacity:
+                          task.status === "completed"
+                            ? 0.6
+                            : 1,
+                      }}
+                    >
+
+                      <TaskCard
+                        task={{
+                          id: task.assignment_id,
+                          title: task.task.description,
+                          completed: task.status === "completed",
+                          selected: task.selected,
+                          time: task.task.scheduled_time,
+                        }}
+                        onToggle={() => handleToggle(task)}
+                      />
+
+                    </View>
+                  ))}
+                </View>
+
+              </View>
+            ))}
 
         </View>
       </ScrollView>
@@ -603,9 +791,7 @@ export default function CaregiverDashboard() {
         </View>
       </Modal>
       {/* 🔴 LOGOUT FAB */}
-      <TouchableOpacity style={styles.logoutFab} onPress={handleLogout}>
-        <Text style={styles.logoutText}>⎋</Text>
-      </TouchableOpacity>
+
     </SafeAreaView>
   );
 }

@@ -89,27 +89,6 @@ export default function OtpSection({
 
 
 
-  const handleLogin = async (role: "patient" | "caregiver") => {
-    try {
-      const userData = {
-        isLoggedIn: true,
-        phone: phone,
-        role: role,
-      };
-
-      await AsyncStorage.setItem("user", JSON.stringify(userData));
-
-      // 🚀 Navigate based on role
-      if (role === "patient") {
-        router.replace("/(patient)/dashboard");
-      } else {
-        router.replace("/(scanner)");
-      }
-
-    } catch (e) {
-      console.log("Storage error", e);
-    }
-  };
 
 
   return (
@@ -154,34 +133,12 @@ export default function OtpSection({
           })}
       </View>
 
-      {!otpVerified ? (
-        <AppButton
-          title="Verify OTP"
-          onPress={onVerify}
-          loading={loading}
-          disabled={!isComplete || loading}
-        />
-      ) : (
-        <View style={styles.roleContainer}>
-
-          {/* PATIENT */}
-          <TouchableOpacity
-            style={styles.patientBtn}
-            onPress={() => handleLogin("patient")}
-          >
-            <Text style={styles.roleText}>Continue as Client</Text>
-          </TouchableOpacity>
-
-          {/* CAREGIVER */}
-          <TouchableOpacity
-            style={styles.caregiverBtn}
-            onPress={() => handleLogin("caregiver")}
-          >
-            <Text style={styles.roleText}>Continue as Caregiver</Text>
-          </TouchableOpacity>
-
-        </View>
-      )}
+      <AppButton
+        title={otpVerified ? "Verified" : "Verify OTP"}
+        onPress={onVerify}
+        loading={loading}
+        disabled={!isComplete || loading || otpVerified}
+      />
 
       <TouchableOpacity
         onPress={onResend}

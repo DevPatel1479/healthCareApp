@@ -14,11 +14,15 @@ import {
 
 import axios from 'axios';
 import { ENDPOINTS } from "@/api/endpoints";
-import AsyncStorage from "@react-native-async-storage/async-storage/lib/typescript/AsyncStorage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+
 
 
 
 export default function LoginScreen() {
+
+
   const [error, setError] = useState<string>("");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -50,6 +54,25 @@ export default function LoginScreen() {
       setError("");
       setOtpType(type);
 
+      const loginRes = await axios.post(ENDPOINTS.login(), {
+        phone_number: phone,
+      });
+      if (!loginRes.data.success) {
+        setError(loginRes.data.message || "User not found");
+        return;
+      }
+
+      const userData = loginRes.data.data;
+      console.log(userData);
+      await AsyncStorage.multiSet([
+        ["user_id", String(userData.user_id)],
+        ["role", String(userData.role)],
+        ["reference_id", String(userData.reference_id)],
+        ["full_name", String(userData.full_name)],
+        ["is_verified", String(userData.is_verified)],
+        ["phone_number", phone],
+      ]);
+
       await axios.post(ENDPOINTS.sendOtp(), {
         phone,
         type
@@ -59,6 +82,8 @@ export default function LoginScreen() {
       setTimer(30); // start resend timer
 
     } catch (err: any) {
+      console.log("Login/OTP Error", err);
+      await AsyncStorage.clear();
       setError(
         err?.response?.data?.message ||
         "Failed to send OTP. Check your internet connection."
@@ -69,7 +94,7 @@ export default function LoginScreen() {
     }
   };
 
-  
+
   // ✅ VERIFY OTP API
   const handleVerify = async () => {
     try {
@@ -85,6 +110,26 @@ export default function LoginScreen() {
         setOtpVerified(true);
 
         setTimer(0);
+        await AsyncStorage.setItem('isUserLoggedIn', 'true');
+        const role = await AsyncStorage.getItem("role");
+        setTimeout(() => {
+
+          // FAMILY LEAD -> PATIENT DASHBOARD
+          if (role === "family_lead") {
+            router.replace("/(patient)/dashboard");
+          }
+
+          // CAREGIVER -> SCANNER
+          else if (role === "caregiver") {
+            router.replace("/(scanner)");
+          }
+
+          // ADMIN / DOCTOR FALLBACK
+          else {
+            router.replace("/(scanner)");
+          }
+
+        }, 700);
 
         // router.push("/(scanner)");
       } else {
@@ -137,7 +182,7 @@ export default function LoginScreen() {
               </Text>
 
               <Text style={styles.subtitle}>
-                Continue supporting your loved ones
+                supporting your loved ones
               </Text>
             </View>
 

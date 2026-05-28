@@ -9,21 +9,36 @@ export default function Index() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const userData = await AsyncStorage.getItem("user");
 
-        if (userData) {
-          const user = JSON.parse(userData);
+        const values = await AsyncStorage.multiGet([
+          "isUserLoggedIn",
+          "role",
+        ]);
 
-          if (user?.isLoggedIn) {
-            if (user.role === "patient") {
-              setRoute("/(patient)/dashboard");
-            } else {
-              setRoute("/(scanner)");
-            }
-            return;
-          }
+        const data = Object.fromEntries(values);
+
+        const isLoggedIn = data.isUserLoggedIn === "true";
+        const role = data.role;
+
+        // NOT LOGGED IN
+        if (!isLoggedIn) {
+          setRoute("/(auth)/login");
+          return;
         }
 
+        // FAMILY LEAD -> PATIENT DASHBOARD
+        if (role === "family_lead") {
+          setRoute("/(patient)/dashboard");
+          return;
+        }
+
+        // CAREGIVER -> SCANNER
+        if (role === "caregiver") {
+          setRoute("/(scanner)");
+          return;
+        }
+
+        // FALLBACK
         setRoute("/(auth)/login");
 
       } catch (e) {
@@ -31,7 +46,6 @@ export default function Index() {
         setRoute("/(auth)/login");
       }
     };
-
     checkAuth();
   }, []);
 

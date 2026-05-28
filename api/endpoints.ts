@@ -5,9 +5,11 @@ const BASE_WEBSOCKET_URL_LIVE = "https://healthcarebackend-gcdo.onrender.com/api
 const BASE_SOCKET_URL = "https://healthcarebackend-gcdo.onrender.com/";
 
 export const ENDPOINTS = {
+
+    login: () => `${BASE_URL_LIVE}/auth/login`,
     sendOtp: () => `${BASE_URL_LIVE}/send-otp`,
     verifyOtp: () => `${BASE_URL_LIVE}/verify-otp`,
-    getCaregiverTasks: (caregiverId: string) => `${BASE_WEBSOCKET_URL_LIVE}/caregiver/${caregiverId}/tasks`,
+    getCaregiverTasks: (caregiverId: Number) => `${BASE_WEBSOCKET_URL_LIVE}/caregiver/${caregiverId}/tasks`,
     updateTasksStatus: () => `${BASE_WEBSOCKET_URL_LIVE}/tasks/update-status`,
     getPatientTasks: (patientId: string) => `${BASE_WEBSOCKET_URL_LIVE}/patient/${patientId}/tasks`,
     createPatientTask: () => `${BASE_WEBSOCKET_URL_LIVE}/patient/create-task`,

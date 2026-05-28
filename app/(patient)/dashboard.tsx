@@ -59,11 +59,17 @@ export default function PatientDashboard() {
     // CREATE TASK MODAL
     const [modalVisible, setModalVisible] = useState(false);
     const [taskInput, setTaskInput] = useState("");
-    const caregiver = tasks.find(t => t.caregiver)?.caregiver;
+
     const [caregiverModal, setCaregiverModal] = useState(false);
+    const [patientName, setPatientName] = useState("Client");
     const [selectedCategory, setSelectedCategory] = useState(
         "Daily_Routine"
     );
+    const [caregiver, setCaregiver] = useState<{
+        name: string;
+        phone: string;
+        shift?: string;
+    } | null>(null);
     const categoryOptions = [
         {
             label: "Daily / Routine Task",
@@ -78,33 +84,128 @@ export default function PatientDashboard() {
             value: "Periodic",
         },
     ];
-    const patientName =
-        tasks[0]?.patient?.name?.trim() || "Client";
+
+
     useEffect(() => {
-        const socket = connectPatientSocket(5); // 🔥 patient id
+        const loadPatientName = async () => {
+            try {
+                const fullName = await AsyncStorage.getItem("full_name");
 
-        socket.on("task_updated", (updatedTask) => {
-            console.log("🔥 Patient received update:", updatedTask);
+                if (fullName) {
+                    setPatientName(fullName);
+                }
+            } catch (err) {
+                console.log("Failed to load patient name", err);
+            }
+        };
 
-            setTasks((prev) =>
-                prev.map((task) =>
-                    task.assignment_id === updatedTask.assignment_id
-                        ? {
-                            ...task,
-                            status: updatedTask.status,
-                            observation: updatedTask.observation,
-                            task: {
-                                ...task.task,
-                                ...updatedTask.task,
-                            },
+        loadPatientName();
+    }, []);
+
+    useEffect(() => {
+        let socket: any;
+        const initializeSocket = async () => {
+            const referenceId = await AsyncStorage.getItem("reference_id");
+            if (!referenceId) {
+                console.log("Patient reference_id not found");
+                return;
+            }
+
+
+
+            socket = connectPatientSocket(Number(referenceId)); // 🔥 patient id
+
+            socket.on("task_updated", (updatedTask: any) => {
+
+                console.log("🔥 Patient received update:", updatedTask);
+
+                setTasks((prev) => {
+
+                    const updated = prev.map((task) =>
+                        task.assignment_id === updatedTask.assignment_id
+                            ? {
+                                ...task,
+                                status: updatedTask.status,
+                                observation: updatedTask.observation,
+
+                                task: {
+                                    ...task.task,
+                                    ...updatedTask.task,
+                                },
+                            }
+                            : task
+                    );
+
+                    // ✅ Re-sort after realtime update
+                    return [...updated].sort((a, b) => {
+
+                        // CATEGORY ORDER
+                        const categoryPriority: Record<string, number> = {
+                            Daily_Routine: 0,
+                            Unplanned_As_Required: 1,
+                            Periodic: 2,
+                        };
+
+                        const categoryCompare =
+                            categoryPriority[a.task.task_category] -
+                            categoryPriority[b.task.task_category];
+
+                        if (categoryCompare !== 0) {
+                            return categoryCompare;
                         }
-                        : task
-                )
-            );
-        });
+
+                        // PENDING FIRST
+                        const statusPriority: Record<string, number> = {
+                            pending: 0,
+                            completed: 1,
+                            skipped: 1,
+                            refused: 1,
+                        };
+
+                        const statusCompare =
+                            statusPriority[a.status] -
+                            statusPriority[b.status];
+
+                        if (statusCompare !== 0) {
+                            return statusCompare;
+                        }
+
+                        // OPTIONAL TIME SORT
+                        const timeA = a.task.scheduled_time
+                            ? new Date(a.task.scheduled_time).getTime()
+                            : 0;
+
+                        const timeB = b.task.scheduled_time
+                            ? new Date(b.task.scheduled_time).getTime()
+                            : 0;
+
+                        return timeA - timeB;
+                    });
+                });
+            });
+            socket.on("daily_tasks_regenerated", async (data: any) => {
+
+                console.log(
+                    "🔄 Patient daily tasks regenerated:",
+                    data
+                );
+
+                // fetch latest regenerated tasks
+                await fetchTasks(false);
+
+                Alert.alert(
+                    "Tasks Updated",
+                    "New daily tasks are available."
+                );
+            });
+        };
+        initializeSocket();
 
         return () => {
-            socket.off("task_updated");
+            if (socket) {
+                socket.off("task_updated");
+                socket.off("daily_tasks_regenerated");
+            }
         };
     }, []);
     const handleLogout = () => {
@@ -117,7 +218,8 @@ export default function PatientDashboard() {
                     text: "Logout",
                     style: "destructive",
                     onPress: async () => {
-                        await AsyncStorage.removeItem("user");
+                        await AsyncStorage.clear();
+
                         router.replace("/(auth)/login");
                     },
                 },
@@ -134,8 +236,9 @@ export default function PatientDashboard() {
             }
 
             setError("");
+            const referenceId = await AsyncStorage.getItem("reference_id");
 
-            const res = await fetch(ENDPOINTS.getPatientTasks("5"));
+            const res = await fetch(ENDPOINTS.getPatientTasks(String(referenceId)));
             const json = await res.json();
 
             if (!json.success) {
@@ -143,6 +246,7 @@ export default function PatientDashboard() {
             }
 
             setTasks(json.data || []);
+            setCaregiver(json.caregiver || null);
         } catch (err: any) {
             const message = err.message || "Something went wrong";
 
@@ -162,12 +266,65 @@ export default function PatientDashboard() {
     }, []);
 
     // ---------------- GROUP ----------------
-    const grouped: GroupedTasks = tasks.reduce((acc, item) => {
-        const cat = item.task.task_category;
-        if (!acc[cat]) acc[cat] = [];
-        acc[cat].push(item);
-        return acc;
-    }, {} as GroupedTasks);
+
+    const categoryOrder = [
+        "Daily_Routine",
+        "Unplanned_As_Required",
+        "Periodic",
+    ];
+
+    // ---------------- TASK STATUS SORT ----------------
+    // Pending first, completed/skipped/refused last
+    const statusPriority: Record<string, number> = {
+        pending: 0,
+        completed: 1,
+        skipped: 1,
+        refused: 1,
+    };
+
+    // ---------------- GROUP + SORT ----------------
+    const grouped: GroupedTasks = {};
+
+    // create empty categories in correct order
+    categoryOrder.forEach((category) => {
+        grouped[category] = [];
+    });
+
+    // group tasks
+    tasks.forEach((task) => {
+        const category = task.task.task_category;
+
+        if (!grouped[category]) {
+            grouped[category] = [];
+        }
+
+        grouped[category].push(task);
+    });
+
+    // sort tasks inside every category
+    Object.keys(grouped).forEach((category) => {
+        grouped[category].sort((a, b) => {
+
+            // ✅ pending tasks first
+            const statusCompare =
+                statusPriority[a.status] - statusPriority[b.status];
+
+            if (statusCompare !== 0) {
+                return statusCompare;
+            }
+
+            // ✅ optional secondary sorting by scheduled time
+            const timeA = a.task.scheduled_time
+                ? new Date(a.task.scheduled_time).getTime()
+                : 0;
+
+            const timeB = b.task.scheduled_time
+                ? new Date(b.task.scheduled_time).getTime()
+                : 0;
+
+            return timeA - timeB;
+        });
+    });
 
     // ---------------- CREATE TASK ----------------
     const handleCreateTask = async () => {
@@ -185,7 +342,7 @@ export default function PatientDashboard() {
         try {
 
             setCreating(true);
-
+            const referenceId = await AsyncStorage.getItem("reference_id");
             const res = await fetch(
                 ENDPOINTS.createPatientTask(),
                 {
@@ -196,7 +353,7 @@ export default function PatientDashboard() {
                     },
 
                     body: JSON.stringify({
-
+                        patient_id: Number(referenceId),
                         description: taskInput,
 
                         scheduled_time: null,
@@ -395,68 +552,70 @@ export default function PatientDashboard() {
                         />
                     </TouchableOpacity>
                     {/* GROUPED TASKS */}
-                    {Object.keys(grouped).map((category) => (
-                        <View key={category} style={styles.categoryBlock}>
+                    {categoryOrder
+                        .filter((category) => grouped[category]?.length > 0)
+                        .map((category) => (
+                            <View key={category} style={styles.categoryBlock}>
 
-                            <View style={styles.categoryHeader}>
-                                <Text style={styles.categoryTitle}>
-                                    {formatCategory(category)}
-                                </Text>
-
-                                <View style={styles.countBadge}>
-                                    <Text style={styles.countText}>
-                                        {grouped[category].length}
+                                <View style={styles.categoryHeader}>
+                                    <Text style={styles.categoryTitle}>
+                                        {formatCategory(category)}
                                     </Text>
-                                </View>
-                            </View>
 
-                            <View style={styles.taskList}>
-                                {grouped[category].map((task) => (
-                                    <View key={task.assignment_id} style={styles.taskWrapper}>
-
-                                        <TaskCard
-                                            task={{
-                                                id: task.assignment_id,
-                                                title: task.task.description,
-                                                completed: task.status === "completed",
-                                                time: task.task.scheduled_time,
-                                            }}
-                                            onToggle={() => {
-                                                if (task.status !== "completed") return;
-                                            }}
-                                        />
-
-                                        {/* ✅ OBSERVATION SECTION */}
-                                        {task.observation && (
-                                            <View style={styles.observationContainer}>
-
-                                                <View style={styles.observationHeader}>
-                                                    <Ionicons name="document-text-outline" size={16} color="#0369a1" />
-                                                    <Text style={styles.observationLabel}>Caregiver Note</Text>
-                                                </View>
-
-                                                <TouchableOpacity
-                                                    style={styles.observationBtn}
-                                                    onPress={() => {
-                                                        setSelectedObservation(task.observation ?? null);
-                                                        setObservationModal(true);
-                                                    }}
-                                                >
-                                                    <Ionicons name="eye-outline" size={16} color="#fff" />
-                                                    <Text style={styles.observationText}>
-                                                        View Observation
-                                                    </Text>
-                                                </TouchableOpacity>
-
-                                            </View>
-                                        )}
+                                    <View style={styles.countBadge}>
+                                        <Text style={styles.countText}>
+                                            {grouped[category].length}
+                                        </Text>
                                     </View>
+                                </View>
 
-                                ))}
+                                <View style={styles.taskList}>
+                                    {grouped[category].map((task) => (
+                                        <View key={task.assignment_id} style={styles.taskWrapper}>
+
+                                            <TaskCard
+                                                task={{
+                                                    id: task.assignment_id,
+                                                    title: task.task.description,
+                                                    completed: task.status === "completed",
+                                                    time: task.task.scheduled_time,
+                                                }}
+                                                onToggle={() => {
+                                                    if (task.status !== "completed") return;
+                                                }}
+                                            />
+
+                                            {/* ✅ OBSERVATION SECTION */}
+                                            {task.observation && (
+                                                <View style={styles.observationContainer}>
+
+                                                    <View style={styles.observationHeader}>
+                                                        <Ionicons name="document-text-outline" size={16} color="#0369a1" />
+                                                        <Text style={styles.observationLabel}>Caregiver Note</Text>
+                                                    </View>
+
+                                                    <TouchableOpacity
+                                                        style={styles.observationBtn}
+                                                        onPress={() => {
+                                                            setSelectedObservation(task.observation ?? null);
+                                                            setObservationModal(true);
+                                                        }}
+                                                    >
+                                                        <Ionicons name="eye-outline" size={16} color="#fff" />
+                                                        <Text style={styles.observationText}>
+                                                            View Observation
+                                                        </Text>
+                                                    </TouchableOpacity>
+
+                                                </View>
+                                            )}
+                                        </View>
+
+                                    ))}
+                                </View>
+
                             </View>
-
-                        </View>
-                    ))}
+                        ))}
                 </View>
             </ScrollView>
 

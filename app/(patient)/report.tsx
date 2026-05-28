@@ -25,9 +25,11 @@ import * as XLSX from "xlsx";
 // ADD THIS IMPORT
 import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type ReportItem = {
-    assignment_id: number;
+    completed_task_id: number;
+    assignment_id?: number | null;
     task_description: string;
     completed_at: string;
     caregiver: {
@@ -51,7 +53,8 @@ function ReportTableRow({
     isEven: boolean;
 }) {
     const [expanded, setExpanded] = useState(false);
-    const isLongTask = item.task_description.length > 100;
+    const isLongTask =
+        (item.task_description?.length ?? 0) > 100;
     const isLongObs =
         item.observation_notes && item.observation_notes.length > 100;
 
@@ -77,7 +80,7 @@ function ReportTableRow({
                     style={styles.tableCell}
                     numberOfLines={isLongTask && !expanded ? 3 : undefined}
                 >
-                    {item.task_description}
+                    {item.task_description ?? "N/A"}
                 </Text>
                 {isLongTask && (
                     <TouchableOpacity
@@ -160,7 +163,8 @@ function ReportCard({
     index: number;
 }) {
     const [expanded, setExpanded] = useState(false);
-    const isLongTask = item.task_description.length > 120;
+    const isLongTask =
+        (item.task_description?.length ?? 0) > 120;
 
     return (
         <View style={styles.card}>
@@ -173,7 +177,7 @@ function ReportCard({
                     style={styles.cardValue}
                     numberOfLines={isLongTask && !expanded ? 3 : undefined}
                 >
-                    {item.task_description}
+                    {item.task_description ?? "N/A"}
                 </Text>
                 {isLongTask && (
                     <TouchableOpacity
@@ -262,8 +266,12 @@ export default function PatientReportScreen() {
     }>();
 
     const clientName = patientName || "Client";
-    const formatDate = (date: Date) =>
-        date.toISOString().split("T")[0];
+    const formatDate = (date: Date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+    };
     const getSafeFileName = () => {
         const safeName = clientName
             .trim()
@@ -321,7 +329,7 @@ export default function PatientReportScreen() {
                     (item, index) => `
                 <tr>
                     <td>${index + 1}</td>
-                    <td>${item.task_description}</td>
+                    <td>${item.task_description ?? "N/A"}</td>
                     <td>${item.completed_at
                             ?.replace("T", " ")
                             ?.replace(".000Z", "")}</td>
@@ -491,11 +499,13 @@ export default function PatientReportScreen() {
     const fetchReports = async (date: Date) => {
         try {
             setLoading(true);
+            const referenceId = await AsyncStorage.getItem("reference_id");
+
             const response = await fetch(ENDPOINTS.getPatientReports(), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    patient_id: 5,
+                    patient_id: referenceId,
                     date: formatDate(date),
                 }),
             });
@@ -569,7 +579,7 @@ export default function PatientReportScreen() {
                         {/* Table rows */}
                         {reports.map((item, index) => (
                             <ReportTableRow
-                                key={item.assignment_id}
+                                key={item.completed_task_id}
                                 item={item}
                                 index={index}
                                 isEven={index % 2 === 0}
@@ -588,7 +598,7 @@ export default function PatientReportScreen() {
             >
                 {reports.map((item, index) => (
                     <ReportCard
-                        key={item.assignment_id}
+                        key={item.completed_task_id}
                         item={item}
                         index={index}
                     />

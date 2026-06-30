@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { CameraView, useCameraPermissions } from "expo-camera";
+
+import { Alert, Dimensions } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import {
@@ -22,6 +24,7 @@ import StatsHeader from "@/components/dashboard/StatsHeader";
 import TaskCard from "@/components/dashboard/TaskCard";
 import { ENDPOINTS } from "@/api/endpoints";
 import { Ionicons } from "@expo/vector-icons";
+import { uploadImageToServer } from "@/services/uploadImageToServer";
 
 
 
@@ -32,6 +35,7 @@ type TaskAssignment = {
   time_done: string | null;
   flag_level: "green" | "yellow" | "red";
   observation: string | null;
+  photo_evidence: string | null;
   selected?: boolean;
   caregiver?: {
     id: number;
@@ -42,6 +46,9 @@ type TaskAssignment = {
     id: number;
     name: string;
     phone: string;
+    patient_id: number;
+    category: string;
+    shift: string | null;
   } | null;
   task: {
     task_id: number;
@@ -51,6 +58,7 @@ type TaskAssignment = {
     clinical_notes: string | null;
 
   };
+
 };
 
 type GroupedTasks = Record<string, TaskAssignment[]>;
@@ -126,9 +134,21 @@ export default function CaregiverDashboard() {
   // const [image, setImage] = useState(null);
   const [patientInfo, setPatientInfo] = useState<TaskAssignment["patient"] | null>(null);
 
+  const [observationModal, setObservationModal] = useState(false);
+  const [selectedObservation, setSelectedObservation] = useState<string | null>(null);
 
+  const [imageModal, setImageModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const [caregiverName, setCaregiverName] = useState("Caregiver");
+
+  const cameraRef = useRef<CameraView | null>(null);
+  const [cameraVisible, setCameraVisible] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+
   useEffect(() => {
     const loadCaregiverName = async () => {
       try {
@@ -172,6 +192,7 @@ export default function CaregiverDashboard() {
     );
   };
   const fabScale = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     let socket: any;
 
@@ -197,7 +218,14 @@ export default function CaregiverDashboard() {
           setTasks((prev) =>
             prev.map((t) =>
               t.assignment_id === updatedTask.assignment_id
-                ? { ...t, ...updatedTask }
+                ? {
+                  ...t,
+                  status: updatedTask.status,
+                  time_done: updatedTask.time_done,
+                  flag_level: updatedTask.flag_level,
+                  observation: updatedTask.observation,
+                  photo_evidence: updatedTask.photo_evidence,
+                }
                 : t
             )
           );
@@ -233,15 +261,24 @@ export default function CaregiverDashboard() {
             if (exists) return prev;
 
             // ✅ 3. NORMALIZE STRUCTURE (VERY IMPORTANT)
-            const formattedTask = {
+            const formattedTask: TaskAssignment = {
               assignment_id: newTask.assignment_id,
+
               status: newTask.status,
               time_done: newTask.time_done,
+
               flag_level: newTask.flag_level,
+
               observation: newTask.observation,
+
+              photo_evidence: newTask.photo_evidence ?? null,
+
+              caregiver: newTask.caregiver ?? null,
+
+              patient: newTask.patient ?? null,
+
               selected: false,
 
-              // 🔥 your UI expects "task"
               task: newTask.task,
             };
 
@@ -324,6 +361,7 @@ export default function CaregiverDashboard() {
     fetchTasks();
   }, []);
 
+
   // ---------------- GROUP BY CATEGORY ----------------
   // ---------------- CATEGORY ORDER ----------------
   const categoryOrder = [
@@ -394,16 +432,121 @@ export default function CaregiverDashboard() {
     setModalVisible(true);
   };
 
-  // ---------------- PICK IMAGE ----------------
-  const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.7,
-    });
+  const validateAndSetImage = (selectedImage: ImagePicker.ImagePickerAsset) => {
+    // Size validation
+    if (
+      selectedImage.fileSize &&
+      selectedImage.fileSize > 2 * 1024 * 1024
+    ) {
+      Alert.alert(
+        "File Too Large",
+        "Please select an image smaller than 2 MB."
+      );
+      return;
+    }
 
-    if (!result.canceled) {
-      setImage(result.assets[0].uri);
+    // Mime type validation
+    const allowedTypes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (
+      selectedImage.mimeType &&
+      !allowedTypes.includes(selectedImage.mimeType)
+    ) {
+      Alert.alert(
+        "Invalid File",
+        "Only JPG, PNG and WEBP images are allowed."
+      );
+      return;
+    }
+
+    setImage(selectedImage.uri);
+  };
+  // ---------------- PICK IMAGE ----------------
+  const pickFromGallery = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.5,
+      });
+
+      if (result.canceled) return;
+
+      validateAndSetImage(result.assets[0]);
+    } catch (err) {
+      console.log(err);
+      Alert.alert("Error", "Unable to select image.");
+    }
+  };
+
+  // const takePhoto = async () => {
+  //   try {
+  //     console.log("1. Requesting permission");
+  //     const permission =
+  //       await ImagePicker.requestCameraPermissionsAsync();
+  //     console.log("Permission:", permission);
+  //     if (!permission.granted) {
+  //       Alert.alert(
+  //         "Permission Required",
+  //         "Camera permission is required."
+  //       );
+  //       return;
+  //     }
+  //     console.log("2. Opening camera");
+
+  //     const result = await ImagePicker.launchCameraAsync({
+  //       allowsEditing: true,
+  //       quality: 0.5,
+  //       mediaTypes: ImagePicker.MediaTypeOptions.Images,
+  //     });
+  //     console.log("3. Camera returned:", result);
+
+  //     if (result.canceled) return;
+
+  //     validateAndSetImage(result.assets[0]);
+
+  //   } catch (err) {
+  //     console.log(err);
+  //     Alert.alert("Error", "Unable to open camera.");
+  //   }
+  // };
+
+
+  const openCamera = async () => {
+    try {
+      const current = cameraPermission ?? (await requestCameraPermission());
+
+      if (!current.granted) {
+        Alert.alert("Permission Required", "Camera permission is required.");
+        return;
+      }
+
+      setCameraVisible(true);
+    } catch (err) {
+      console.log(err);
+      Alert.alert("Error", "Unable to open camera.");
+    }
+  };
+
+  const capturePhoto = async () => {
+    try {
+      const photo = await cameraRef.current?.takePictureAsync({
+        quality: 0.7,
+        skipProcessing: true,
+      });
+
+      if (!photo?.uri) return;
+
+      setImage(photo.uri);
+      setCameraVisible(false);
+    } catch (err) {
+      console.log(err);
+      Alert.alert("Error", "Unable to capture photo.");
     }
   };
 
@@ -414,7 +557,14 @@ export default function CaregiverDashboard() {
     try {
       setUpdating(true);
       const referenceId = await AsyncStorage.getItem("reference_id");
+      let uploadedImageUrl = null;
+      if (image) {
+        uploadedImageUrl = await uploadImageToServer(
+          image
+        );
+      }
       // 🔥 CALL BACKEND
+
       const res = await fetch(ENDPOINTS.updateTasksStatus(), {
         method: "PATCH",
         headers: {
@@ -425,7 +575,7 @@ export default function CaregiverDashboard() {
           caregiver_id: Number(referenceId),
           status: "completed",
           observation: note || null,
-          photo_evidence: image || null,
+          photo_evidence: uploadedImageUrl,
         }),
       });
 
@@ -437,10 +587,16 @@ export default function CaregiverDashboard() {
 
       // 🔥 OPTIMISTIC UI UPDATE (instant)
       setTasks((prev) => {
-
         const updated = prev.map((t) =>
           t.assignment_id === updatedTask.assignment_id
-            ? { ...t, ...updatedTask }
+            ? {
+              ...t,
+              status: updatedTask.status,
+              time_done: updatedTask.time_done,
+              flag_level: updatedTask.flag_level,
+              observation: updatedTask.observation,
+              photo_evidence: updatedTask.photo_evidence,
+            }
             : t
         );
 
@@ -454,8 +610,10 @@ export default function CaregiverDashboard() {
       setSelectedTask(null);
 
     } catch (err: any) {
-      console.log("error", err);
-      alert(err.message || "Update failed");
+      Alert.alert(
+        "Upload Failed",
+        err.message || "Please try again."
+      );
     } finally {
       setUpdating(false);
     }
@@ -497,6 +655,19 @@ export default function CaregiverDashboard() {
       .replaceAll("_", " ")
       .toLowerCase()
       .replace(/\b\w/g, (l) => l.toUpperCase());
+  };
+
+  const openImageModal = (uri: string) => {
+    setSelectedImage(uri);
+    setImageError(null);
+    setImageLoading(true);
+    setImageModal(true);
+  };
+
+  const closeImageModal = () => {
+    setImageModal(false);
+    setImageLoading(false);
+    setImageError(null);
   };
   return (
     <SafeAreaView style={styles.container}>
@@ -629,6 +800,52 @@ export default function CaregiverDashboard() {
                         onToggle={() => handleToggle(task)}
                       />
 
+                      {(task.observation || task.photo_evidence) && (
+                        <View style={styles.observationContainer}>
+
+                          {task.observation && (
+                            <TouchableOpacity
+                              style={styles.observationBtn}
+                              onPress={() => {
+                                setSelectedObservation(task.observation);
+                                setObservationModal(true);
+                              }}
+                            >
+                              <Ionicons
+                                name="document-text-outline"
+                                size={16}
+                                color="#fff"
+                              />
+
+                              <Text style={styles.observationText}>
+                                View Observation
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+
+                          {task.photo_evidence && (
+                            <TouchableOpacity
+                              style={[
+                                styles.observationBtn,
+                                { marginTop: 10 }
+                              ]}
+                              onPress={() => openImageModal(task.photo_evidence!)}
+                            >
+                              <Ionicons
+                                name="image-outline"
+                                size={16}
+                                color="#fff"
+                              />
+
+                              <Text style={styles.observationText}>
+                                View Image
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+
+                        </View>
+                      )}
+
                     </View>
                   ))}
                 </View>
@@ -678,14 +895,61 @@ export default function CaregiverDashboard() {
 
             <View style={styles.modalButtonContainer}>
 
-              <TouchableOpacity onPress={pickImage} style={styles.buttonPrimary}>
+              <TouchableOpacity
+                onPress={() => {
+                  Alert.alert(
+                    "Add Image",
+                    "Choose image source",
+                    [
+                      {
+                        text: "Take Photo",
+                        onPress: openCamera,
+                      },
+                      {
+                        text: "Choose from Gallery",
+                        onPress: pickFromGallery,
+                      },
+                      {
+                        text: "Cancel",
+                        style: "cancel",
+                      },
+                    ]
+                  );
+                }}
+                style={styles.buttonPrimary}
+              >
                 <Text style={{ color: "#fff", fontWeight: "600" }}>
-                  Pick Image
+                  {image ? "Change Image" : "Add Image"}
                 </Text>
               </TouchableOpacity>
 
               {image && (
-                <Image source={{ uri: image }} style={styles.preview} />
+                <>
+                  <Image
+                    source={{ uri: image }}
+                    style={styles.preview}
+                  />
+
+                  <TouchableOpacity
+                    onPress={() => setImage(null)}
+                    style={{
+                      marginTop: 10,
+                      backgroundColor: "#dc2626",
+                      paddingVertical: 10,
+                      borderRadius: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "#fff",
+                        fontWeight: "600",
+                      }}
+                    >
+                      Remove Image
+                    </Text>
+                  </TouchableOpacity>
+                </>
               )}
 
               <TouchableOpacity
@@ -790,6 +1054,139 @@ export default function CaregiverDashboard() {
           </View>
         </View>
       </Modal>
+      <Modal
+        visible={observationModal}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.observationModalOverlay}>
+          <View style={styles.observationModalCard}>
+
+            <View style={styles.observationHeader}>
+              <View style={styles.observationIcon}>
+                <Ionicons
+                  name="document-text"
+                  size={24}
+                  color="#2563eb"
+                />
+              </View>
+
+              <Text style={styles.observationTitle}>
+                Caregiver Note
+              </Text>
+            </View>
+
+            <View style={styles.observationContent}>
+              <Text style={styles.observationTextLarge}>
+                {selectedObservation}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.observationCloseBtn}
+              onPress={() => setObservationModal(false)}
+            >
+              <Text style={styles.observationCloseText}>
+                Close
+              </Text>
+            </TouchableOpacity>
+
+          </View>
+        </View>
+      </Modal>
+
+
+      <Modal
+        visible={imageModal}
+        
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={closeImageModal}
+        
+      >
+        <View style={styles.fullScreenImageContainer}>
+          <TouchableOpacity
+            style={styles.imageCloseBtn}
+            onPress={() => {
+              setImageModal(false);
+              setImageLoading(false);
+              setImageError(null);
+            }}
+          >
+            <Ionicons name="close" size={30} color="#fff" />
+          </TouchableOpacity>
+
+          <View style={{ flex: 1, width: "100%", justifyContent: "center", alignItems: "center" }}>
+            {imageLoading && (
+              <View style={{ position: "absolute", zIndex: 2, alignItems: "center" }}>
+                <ActivityIndicator size="large" color="#fff" />
+                <Text style={{ color: "#fff", marginTop: 12 }}>Loading image...</Text>
+              </View>
+            )}
+
+            {imageError ? (
+              <Text style={{ color: "#fff" }}>{imageError}</Text>
+            ) : selectedImage ? (
+              <Image
+                source={{ uri: selectedImage }}
+                style={styles.fullScreenImage}
+                resizeMode="contain"
+                onLoadStart={() => setImageLoading(true)}
+                onLoadEnd={() => setImageLoading(false)}
+                onError={() => {
+                  setImageLoading(false);
+                  setImageError("Unable to load image.");
+                }}
+              />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={cameraVisible} animationType="slide" onRequestClose={() => setCameraVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <CameraView
+            ref={cameraRef}
+            style={{ flex: 1 }}
+            facing="back"
+          />
+
+          <View
+            style={{
+              position: "absolute",
+              bottom: 30,
+              left: 20,
+              right: 20,
+              flexDirection: "row",
+              justifyContent: "space-between",
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => setCameraVisible(false)}
+              style={{
+                backgroundColor: "#111827",
+                paddingVertical: 12,
+                paddingHorizontal: 20,
+                borderRadius: 10,
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "600" }}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={capturePhoto}
+              style={{
+                backgroundColor: "#2563eb",
+                paddingVertical: 12,
+                paddingHorizontal: 20,
+                borderRadius: 10,
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "600" }}>Capture</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       {/* 🔴 LOGOUT FAB */}
 
     </SafeAreaView>
@@ -798,6 +1195,193 @@ export default function CaregiverDashboard() {
 
 
 const styles = StyleSheet.create({
+
+  fullScreenImageContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+
+  fullScreenImage: {
+    width: Dimensions.get("window").width,
+    height: Dimensions.get("window").height,
+  },
+
+  imageCloseBtn: {
+    position: "absolute",
+    top: 55,
+    right: 20,
+    zIndex: 9999,
+
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+
+    backgroundColor: "rgba(0,0,0,0.6)",
+
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  observationModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+
+  observationModalCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#fff",
+    borderRadius: 28,
+    padding: 24,
+
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+
+  observationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+
+  observationIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#dbeafe",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  observationTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  observationContent: {
+    backgroundColor: "#f8fafc",
+    borderRadius: 18,
+    padding: 18,
+    minHeight: 120,
+  },
+
+  observationTextLarge: {
+    fontSize: 16,
+    lineHeight: 26,
+    color: "#374151",
+  },
+
+  observationCloseBtn: {
+    marginTop: 20,
+    backgroundColor: "#2563eb",
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+
+  observationCloseText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  imageModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.92)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  imageViewerContainer: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+
+  imageCard: {
+    width: "92%",
+    height: "72%",
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    overflow: "hidden",
+
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+
+  zoomHint: {
+    position: "absolute",
+    bottom: 30,
+    alignSelf: "center",
+
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+
+  zoomHintText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  observationContainer: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+  },
+
+  observationBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#2563eb",
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+
+  observationText: {
+    color: "#fff",
+    fontWeight: "600",
+    marginLeft: 6,
+  },
+
+  detailText: {
+    fontSize: 16,
+    color: "#374151",
+    lineHeight: 24,
+    marginTop: 12,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+
+  modalBox: {
+    width: "90%",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+  },
+
+
+
+
+
   profileName: {
     fontSize: 20,
     fontWeight: "800",
@@ -1187,12 +1771,12 @@ const styles = StyleSheet.create({
   },
 
   //  MODAL
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    padding: 20,
-  },
+  // modalOverlay: {
+  //   flex: 1,
+  //   backgroundColor: "rgba(0,0,0,0.4)",
+  //   justifyContent: "center",
+  //   padding: 20,
+  // },
   banner: {
     position: "absolute",
     top: 0,
@@ -1208,20 +1792,20 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
   },
-  modalBox: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 18,
+  // modalBox: {
+  //   backgroundColor: "#fff",
+  //   borderRadius: 20,
+  //   padding: 18,
 
-    width: "100%",
-    maxWidth: 420,
-    alignSelf: "center",
+  //   width: "100%",
+  //   maxWidth: 420,
+  //   alignSelf: "center",
 
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
+  //   shadowColor: "#000",
+  //   shadowOpacity: 0.15,
+  //   shadowRadius: 12,
+  //   elevation: 8,
+  // },
 
   modalTitle: {
     fontSize: 18,

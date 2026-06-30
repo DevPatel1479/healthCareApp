@@ -16,4 +16,9 @@ export const ENDPOINTS = {
     websocketApiRealTimeUpdates: () => `${BASE_WEBSOCKET_URL_LIVE}`,
     baseWebsocketApiRealTimeUpdates: () => `${BASE_SOCKET_URL}`,
     getPatientReports: () => `${BASE_WEBSOCKET_URL_LIVE}/patient/daily-report`,
+    uploadFile: () => `${BASE_URL_LIVE}/upload`,
+    getPatientQrCode: (patientId: string) => `${BASE_URL_LIVE}/patient/${patientId}/qr-code`,
+    verifyCaregiverQr: () => `${BASE_URL_LIVE}/verify-caregiver-qr`,
+    getFamilyLeadContacts: (patientId: string) =>
+        `${BASE_URL_LIVE}/patient/${patientId}/family-contacts`,
 };

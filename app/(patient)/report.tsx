@@ -43,6 +43,20 @@ type ReportItem = {
 
 // ─── ReportTableRow (outside PatientReportScreen) ───────────────────────────
 
+const formatISTDateTime = (dateStr: string) => {
+    if (!dateStr) return "N/A";
+
+    return new Date(dateStr).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+    });
+};
+
 function ReportTableRow({
     item,
     index,
@@ -104,9 +118,11 @@ function ReportTableRow({
                     })}
                 </Text>
                 <Text style={styles.timeText}>
-                    {new Date(item.completed_at).toLocaleTimeString(undefined, {
+                    {new Date(item.completed_at).toLocaleTimeString("en-IN", {
+                        timeZone: "Asia/Kolkata",
                         hour: "2-digit",
                         minute: "2-digit",
+                        hour12: true,
                     })}
                 </Text>
             </View>
@@ -193,9 +209,15 @@ function ReportCard({
 
             <CardRow label="Completed">
                 <Text style={styles.cardValue}>
-                    {item.completed_at
-                        ?.replace("T", " ")
-                        ?.replace(".000Z", "")}
+                    {new Date(item.completed_at).toLocaleString("en-IN", {
+                        timeZone: "Asia/Kolkata",
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: true,
+                    })}
                 </Text>
             </CardRow>
 
@@ -313,9 +335,7 @@ export default function PatientReportScreen() {
         return reports.map((item, index) => [
             index + 1,
             item.task_description,
-            item.completed_at
-                ?.replace("T", " ")
-                ?.replace(".000Z", ""),
+            formatISTDateTime(item.completed_at),
             item.caregiver?.full_name ?? "N/A",
             item.observation_notes ?? "N/A",
             item.photo_proof?.startsWith("https") ? "Yes" : "No",
@@ -330,9 +350,7 @@ export default function PatientReportScreen() {
                 <tr>
                     <td>${index + 1}</td>
                     <td>${item.task_description ?? "N/A"}</td>
-                    <td>${item.completed_at
-                            ?.replace("T", " ")
-                            ?.replace(".000Z", "")}</td>
+                    <td>${formatISTDateTime(item.completed_at)}</td>
                     <td>${item.caregiver?.full_name ?? "N/A"}</td>
                     <td>${item.observation_notes ?? "N/A"}</td>
                     <td>${item.photo_proof?.startsWith("https")

@@ -11,6 +11,9 @@ import {
     TouchableOpacity,
     useWindowDimensions,
     View,
+    Image,
+    Linking,
+    FlatList
 } from "react-native";
 
 import StatsHeader from "@/components/dashboard/StatsHeader";
@@ -26,22 +29,39 @@ import { connectPatientSocket } from "@/services/socket";
 
 type TaskAssignment = {
     assignment_id: number;
-    status: "completed" | "pending" | "skipped" | "refused";
+    task_id: number;
+
+    status:
+    | "completed"
+    | "pending"
+    | "skipped"
+    | "refused";
+
+    time_done?: string | null;
+
+    flag_level?: "green" | "yellow" | "red";
+
     observation?: string | null;
+
+    photo_evidence?: string | null;
+
     task: {
         task_id: number;
         description: string;
         task_category: string;
         scheduled_time: string | null;
     };
+
     patient?: {
         name: string;
     } | null;
+
     caregiver?: {
         name: string;
         phone: string;
     } | null;
 };
+
 
 type GroupedTasks = Record<string, TaskAssignment[]>;
 
@@ -84,7 +104,19 @@ export default function PatientDashboard() {
             value: "Periodic",
         },
     ];
+    const [imageModal, setImageModal] = useState(false);
+    const [qrModalVisible, setQrModalVisible] = useState(false);
+    const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+    const [loadingQr, setLoadingQr] = useState(false);
+    const [contactsVisible, setContactsVisible] = useState(false);
+    const [contactsLoading, setContactsLoading] = useState(false);
+    const [contactsError, setContactsError] = useState("");
+    const [contacts, setContacts] = useState<any[]>([]);
+    const [selectedImageUrl, setSelectedImageUrl] =
+        useState<string | null>(null);
 
+    const [imageModalLoading, setImageModalLoading] = useState(false);
+    const [imageModalError, setImageModalError] = useState("");
 
     useEffect(() => {
         const loadPatientName = async () => {
@@ -127,7 +159,9 @@ export default function PatientDashboard() {
                                 ...task,
                                 status: updatedTask.status,
                                 observation: updatedTask.observation,
-
+                                time_done: updatedTask.time_done,
+                                flag_level: updatedTask.flag_level,
+                                photo_evidence: updatedTask.photo_evidence,
                                 task: {
                                     ...task.task,
                                     ...updatedTask.task,
@@ -208,6 +242,45 @@ export default function PatientDashboard() {
             }
         };
     }, []);
+
+    const handleShowQr = async () => {
+        try {
+            setLoadingQr(true);
+
+            const patientId =
+                await AsyncStorage.getItem("reference_id");
+
+            const res = await fetch(
+                ENDPOINTS.getPatientQrCode(
+                    String(patientId)
+                )
+            );
+
+            const json = await res.json();
+
+            if (!json.success) {
+                throw new Error(
+                    json.message || "Failed to load QR"
+                );
+            }
+
+            setQrCodeUrl(json.qr_code_url);
+            setQrModalVisible(true);
+
+        } catch (err: any) {
+
+            Alert.alert(
+                "Error",
+                err.message || "Failed to fetch QR code"
+            );
+
+        } finally {
+
+            setLoadingQr(false);
+
+        }
+    };
+
     const handleLogout = () => {
         Alert.alert(
             "Logout",
@@ -244,7 +317,7 @@ export default function PatientDashboard() {
             if (!json.success) {
                 throw new Error(json.message || "Failed to fetch tasks");
             }
-
+            console.log(json);
             setTasks(json.data || []);
             setCaregiver(json.caregiver || null);
         } catch (err: any) {
@@ -401,9 +474,42 @@ export default function PatientDashboard() {
         }
     };
     // ---------------- SOS ----------------
-    const handleSOS = () => {
-        console.log("🚨 SOS TRIGGERED");
-        // 🔴 integrate API / call / SMS here
+    const handleSOS = async () => {
+        try {
+            setContactsLoading(true);
+            setContactsError("");
+            const referenceId = await AsyncStorage.getItem("reference_id");
+            const patientId = referenceId!;
+
+            const response = await fetch(
+                ENDPOINTS.getFamilyLeadContacts(patientId)
+            );
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                throw new Error(
+                    data.message ||
+                    "Unable to fetch emergency contacts"
+                );
+            }
+
+            setContacts(data.data || []);
+            setContactsVisible(true);
+
+        } catch (error: any) {
+            console.log("SOS contacts error:", error);
+
+            setContacts([]);
+            setContactsError(
+                error?.message ||
+                "Failed to load emergency contacts"
+            );
+
+            setContactsVisible(true);
+        } finally {
+            setContactsLoading(false);
+        }
     };
 
     const formatCategory = (cat: string) =>
@@ -444,22 +550,20 @@ export default function PatientDashboard() {
                     paddingBottom: height * 0.14,
                 }}
             >
-                <View style={styles.topBar}>
+                <View style={styles.topHeader}>
                     <View style={styles.profileCard}>
                         <TouchableOpacity
                             style={styles.profileContent}
                             onPress={() => setCaregiverModal(true)}
                             activeOpacity={0.8}
                         >
-                            <View style={styles.avatarContainer}>
-                                <Ionicons
-                                    name="person-circle"
-                                    size={52}
-                                    color="#2563eb"
-                                />
-                            </View>
+                            <Ionicons
+                                name="person-circle"
+                                size={54}
+                                color="#2563eb"
+                            />
 
-                            <View style={styles.profileInfo}>
+                            <View style={{ flex: 1, marginLeft: 12 }}>
                                 <Text style={styles.welcomeText}>
                                     Welcome Back
                                 </Text>
@@ -468,24 +572,32 @@ export default function PatientDashboard() {
                                     {patientName}
                                 </Text>
 
-                                <TouchableOpacity
-                                    onPress={() => setCaregiverModal(true)}
-                                    activeOpacity={0.7}
-                                >
-                                    <Text style={styles.viewCaregiverText}>
-                                        View Caregiver Details
-                                    </Text>
-                                </TouchableOpacity>
+                                <Text style={styles.viewCaregiverText}>
+                                    View Caregiver Details
+                                </Text>
                             </View>
                         </TouchableOpacity>
                     </View>
 
-                    <View style={styles.topActions}>
-                        {/* Refresh Button */}
+                    <View style={styles.actionRow}>
                         <TouchableOpacity
-                            style={styles.actionBtn}
+                            style={styles.circleBtn}
+                            onPress={handleShowQr}
+                        >
+                            {loadingQr ? (
+                                <ActivityIndicator size="small" />
+                            ) : (
+                                <Ionicons
+                                    name="qr-code-outline"
+                                    size={22}
+                                    color="#111827"
+                                />
+                            )}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.circleBtn}
                             onPress={() => fetchTasks(false)}
-                            activeOpacity={0.8}
                             disabled={refreshing}
                         >
                             {refreshing ? (
@@ -493,19 +605,19 @@ export default function PatientDashboard() {
                             ) : (
                                 <Ionicons
                                     name="refresh-outline"
-                                    size={24}
+                                    size={22}
                                     color="#111827"
                                 />
                             )}
                         </TouchableOpacity>
+
                         <TouchableOpacity
-                            style={styles.actionBtn}
+                            style={styles.circleBtn}
                             onPress={handleLogout}
-                            activeOpacity={0.8}
                         >
                             <Ionicons
                                 name="log-out-outline"
-                                size={24}
+                                size={22}
                                 color="#dc2626"
                             />
                         </TouchableOpacity>
@@ -606,6 +718,31 @@ export default function PatientDashboard() {
                                                             View Observation
                                                         </Text>
                                                     </TouchableOpacity>
+                                                    {task.photo_evidence && (
+                                                        <TouchableOpacity
+                                                            style={[
+                                                                styles.observationBtn,
+                                                                { marginTop: 8 }
+                                                            ]}
+                                                            onPress={() => {
+                                                                const url = task.photo_evidence ?? null;
+                                                                setSelectedImageUrl(url);
+                                                                setImageModalError("");
+                                                                setImageModalLoading(!!url);
+                                                                setImageModal(true);
+                                                            }}
+                                                        >
+                                                            <Ionicons
+                                                                name="image-outline"
+                                                                size={16}
+                                                                color="#fff"
+                                                            />
+
+                                                            <Text style={styles.observationText}>
+                                                                View Image
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    )}
 
                                                 </View>
                                             )}
@@ -628,8 +765,16 @@ export default function PatientDashboard() {
             </TouchableOpacity>
 
             {/* 🚨 SOS BUTTON */}
-            <TouchableOpacity style={styles.sosBtn} onPress={handleSOS}>
-                <Text style={styles.sosText}>SOS</Text>
+            <TouchableOpacity
+                style={styles.sosBtn}
+                onPress={handleSOS}
+                disabled={contactsLoading}
+            >
+                {contactsLoading ? (
+                    <ActivityIndicator color="#fff" />
+                ) : (
+                    <Text style={styles.sosText}>SOS</Text>
+                )}
             </TouchableOpacity>
 
             {/* CREATE TASK MODAL */}
@@ -875,12 +1020,493 @@ export default function PatientDashboard() {
                     </View>
                 </TouchableOpacity>
             </Modal>
+            <Modal visible={imageModal} transparent animationType="fade" onRequestClose={() => {
+                setImageModal(false);
+                setImageModalLoading(false);
+                setImageModalError("");
+            }}>
+                <View style={styles.imageModalBackdrop}>
+                    <TouchableOpacity
+                        style={styles.imageCloseBtn}
+                        onPress={() => {
+                            setImageModal(false);
+                            setImageModalLoading(false);
+                            setImageModalError("");
+                        }}
+                    >
+                        <Ionicons name="close" size={32} color="#fff" />
+                    </TouchableOpacity>
+
+                    <View style={styles.imageModalContent}>
+                        {imageModalLoading && (
+                            <View style={styles.imageLoaderOverlay}>
+                                <ActivityIndicator size="large" color="#fff" />
+                                <Text style={styles.imageLoaderText}>Loading image...</Text>
+                            </View>
+                        )}
+
+                        {imageModalError ? (
+                            <Text style={styles.imageErrorText}>{imageModalError}</Text>
+                        ) : selectedImageUrl ? (
+                            <Image
+                                source={{ uri: selectedImageUrl }}
+                                style={styles.patientImage}
+                                resizeMode="contain"
+                                onLoadStart={() => setImageModalLoading(true)}
+                                onLoadEnd={() => setImageModalLoading(false)}
+                                onError={() => {
+                                    setImageModalLoading(false);
+                                    setImageModalError("Unable to load image.");
+                                }}
+                            />
+                        ) : null}
+                    </View>
+                </View>
+            </Modal>
+            <Modal
+                visible={qrModalVisible}
+                transparent
+                animationType="fade"
+            >
+                <View style={styles.qrOverlay}>
+
+                    <View style={styles.qrModalCard}>
+
+                        <TouchableOpacity
+                            style={styles.qrClose}
+                            onPress={() => setQrModalVisible(false)}
+                        >
+                            <Ionicons
+                                name="close"
+                                size={24}
+                                color="#6b7280"
+                            />
+                        </TouchableOpacity>
+
+                        <Ionicons
+                            name="qr-code"
+                            size={40}
+                            color="#2563eb"
+                        />
+
+                        <Text style={styles.qrTitle}>
+                            Patient QR Code
+                        </Text>
+
+                        <Text style={styles.qrSubtitle}>
+                            Show this QR to the caregiver
+                        </Text>
+
+                        {qrCodeUrl ? (
+                            <Image
+                                source={{ uri: qrCodeUrl }}
+                                style={styles.qrImage}
+                                resizeMode="contain"
+                            />
+                        ) : (
+                            <View style={styles.emptyQrContainer}>
+                                <Ionicons
+                                    name="alert-circle-outline"
+                                    size={40}
+                                    color="#ef4444"
+                                />
+
+                                <Text style={styles.emptyQrText}>
+                                    QR Code Not Available
+                                </Text>
+                            </View>
+                        )}
+
+                        <TouchableOpacity
+                            style={styles.qrButton}
+                            onPress={() => setQrModalVisible(false)}
+                        >
+                            <Text style={styles.qrButtonText}>
+                                Close
+                            </Text>
+                        </TouchableOpacity>
+
+                    </View>
+
+                </View>
+            </Modal>
+            <Modal
+                visible={contactsVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() =>
+                    setContactsVisible(false)
+                }
+            >
+                <View style={styles.modalBackdrop}>
+                    <View style={styles.bottomSheet}>
+
+                        <View style={styles.sheetHandle} />
+
+                        <View style={styles.sheetHeader}>
+                            <Text style={styles.sheetTitle}>
+                                Emergency Contacts
+                            </Text>
+
+                            <TouchableOpacity
+                                onPress={() =>
+                                    setContactsVisible(false)
+                                }
+                            >
+                                <Text style={styles.closeText}>
+                                    Close
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {contactsError ? (
+                            <View style={styles.errorContainer}>
+                                <Text style={styles.errorTitle}>
+                                    Unable to load contacts
+                                </Text>
+
+                                <Text style={styles.errorMessage}>
+                                    {contactsError}
+                                </Text>
+                            </View>
+                        ) : contacts.length === 0 ? (
+                            <View style={styles.emptyContainer}>
+                                <Text style={styles.emptyText}>
+                                    No emergency contacts found.
+                                </Text>
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={contacts}
+                                keyExtractor={(_, index) =>
+                                    index.toString()
+                                }
+                                showsVerticalScrollIndicator={false}
+                                renderItem={({ item }) => (
+                                    <View
+                                        style={
+                                            styles.contactCard
+                                        }
+                                    >
+                                        <View>
+                                            <Text
+                                                style={
+                                                    styles.contactName
+                                                }
+                                            >
+                                                {item.contact_name ||
+                                                    "Family Contact"}
+                                            </Text>
+
+                                            <Text
+                                                style={
+                                                    styles.contactPhone
+                                                }
+                                            >
+                                                {
+                                                    item.phone_number
+                                                }
+                                            </Text>
+                                        </View>
+
+                                        <TouchableOpacity
+                                            onPress={() =>
+                                                Linking.openURL(
+                                                    `tel:${item.phone_number}`
+                                                )
+                                            }
+                                            style={
+                                                styles.callButton
+                                            }
+                                        >
+                                            <Text
+                                                style={
+                                                    styles.callButtonText
+                                                }
+                                            >
+                                                Call
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                            />
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
 
 
 const styles = StyleSheet.create({
+    imageModalBackdrop: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.95)",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 16,
+    },
+    imageCloseBtn: {
+        position: "absolute",
+        top: 50,
+        right: 16,
+        zIndex: 10,
+    },
+    imageModalContent: {
+        width: "100%",
+        height: "80%",
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    patientImage: {
+        width: "100%",
+        height: "100%",
+        maxWidth: 900,
+        maxHeight: 700,
+    },
+    imageLoaderOverlay: {
+        position: "absolute",
+        zIndex: 2,
+        alignItems: "center",
+    },
+    imageLoaderText: {
+        color: "#fff",
+        marginTop: 12,
+        fontSize: 14,
+    },
+    imageErrorText: {
+        color: "#fff",
+        fontSize: 16,
+        textAlign: "center",
+    },
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.45)",
+        justifyContent: "flex-end",
+    },
+
+    bottomSheet: {
+        backgroundColor: "#FFF",
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: 30,
+        maxHeight: "70%",
+    },
+
+    sheetHandle: {
+        alignSelf: "center",
+        width: 50,
+        height: 5,
+        borderRadius: 3,
+        backgroundColor: "#D1D5DB",
+        marginBottom: 16,
+    },
+
+    sheetHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 20,
+    },
+
+    sheetTitle: {
+        fontSize: 20,
+        fontWeight: "700",
+        color: "#111827",
+    },
+
+    closeText: {
+        color: "#2563EB",
+        fontWeight: "600",
+        fontSize: 15,
+    },
+
+    contactCard: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderRadius: 16,
+        backgroundColor: "#F9FAFB",
+        marginBottom: 12,
+    },
+
+    contactName: {
+        fontSize: 16,
+        fontWeight: "600",
+        color: "#111827",
+    },
+
+    contactPhone: {
+        marginTop: 4,
+        color: "#6B7280",
+        fontSize: 14,
+    },
+
+    callButton: {
+        backgroundColor: "#10B981",
+        paddingHorizontal: 18,
+        paddingVertical: 10,
+        borderRadius: 12,
+    },
+
+    callButtonText: {
+        color: "#FFF",
+        fontWeight: "700",
+    },
+
+    errorContainer: {
+        alignItems: "center",
+        paddingVertical: 30,
+    },
+
+    errorTitle: {
+        fontSize: 18,
+        fontWeight: "700",
+        marginBottom: 8,
+        color: "#DC2626",
+    },
+
+    errorMessage: {
+        textAlign: "center",
+        color: "#6B7280",
+    },
+
+    emptyContainer: {
+        alignItems: "center",
+        paddingVertical: 30,
+    },
+
+    emptyText: {
+        color: "#6B7280",
+        fontSize: 15,
+    },
+    qrOverlay: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "rgba(0,0,0,0.55)",
+    },
+
+    qrModalCard: {
+        width: "85%",
+        maxWidth: 360,
+
+        backgroundColor: "#fff",
+
+        borderRadius: 24,
+
+        padding: 24,
+
+        alignItems: "center",
+
+        elevation: 8,
+    },
+
+    qrClose: {
+        position: "absolute",
+        right: 15,
+        top: 15,
+    },
+
+    qrTitle: {
+        fontSize: 22,
+        fontWeight: "700",
+        color: "#111827",
+        marginTop: 10,
+    },
+
+    qrSubtitle: {
+        fontSize: 14,
+        color: "#6b7280",
+        marginTop: 4,
+        marginBottom: 18,
+    },
+
+    qrImage: {
+        width: 240,
+        height: 240,
+    },
+
+    emptyQrContainer: {
+        alignItems: "center",
+        paddingVertical: 30,
+    },
+
+    emptyQrText: {
+        marginTop: 10,
+        color: "#ef4444",
+        fontWeight: "600",
+    },
+
+    qrButton: {
+        marginTop: 20,
+        backgroundColor: "#2563eb",
+        width: "100%",
+        borderRadius: 12,
+        paddingVertical: 14,
+        alignItems: "center",
+    },
+
+    qrButtonText: {
+        color: "#fff",
+        fontWeight: "700",
+        fontSize: 16,
+    },
+
+    topHeader: {
+        paddingHorizontal: 20,
+        marginBottom: 16,
+    },
+
+    profileCard: {
+        backgroundColor: "#fff",
+        borderRadius: 18,
+        padding: 16,
+
+        elevation: 4,
+
+        shadowColor: "#000",
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+
+        marginBottom: 12,
+    },
+
+    profileContent: {
+        flexDirection: "row",
+        alignItems: "center",
+    },
+
+    actionRow: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+    },
+
+    circleBtn: {
+        flex: 1,
+
+        backgroundColor: "#fff",
+
+        marginHorizontal: 4,
+
+        height: 52,
+
+        borderRadius: 14,
+
+        justifyContent: "center",
+        alignItems: "center",
+
+        elevation: 3,
+
+        shadowColor: "#000",
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+    },
     createTaskModalBox: {
         width: "100%",
         backgroundColor: "#fff",
@@ -1144,22 +1770,22 @@ const styles = StyleSheet.create({
         textAlign: "center",
         lineHeight: 22,
     },
-    profileCard: {
-        flex: 1,
-        backgroundColor: "#ffffff",
-        borderRadius: 20,
-        marginRight: 12,
-        shadowColor: "#000",
-        shadowOpacity: 0.08,
-        shadowRadius: 10,
-        elevation: 4,
-    },
+    // profileCard: {
+    //     flex: 1,
+    //     backgroundColor: "#ffffff",
+    //     borderRadius: 20,
+    //     marginRight: 12,
+    //     shadowColor: "#000",
+    //     shadowOpacity: 0.08,
+    //     shadowRadius: 10,
+    //     elevation: 4,
+    // },
 
-    profileContent: {
-        flexDirection: "row",
-        alignItems: "center",
-        padding: 14,
-    },
+    // profileContent: {
+    //     flexDirection: "row",
+    //     alignItems: "center",
+    //     padding: 14,
+    // },
 
     avatarContainer: {
         marginRight: 14,
@@ -1357,11 +1983,11 @@ const styles = StyleSheet.create({
         zIndex: 10,
     },
 
-    closeText: {
-        fontSize: 20,
-        fontWeight: "bold",
-        color: "#000",
-    },
+    // closeText: {
+    //     fontSize: 20,
+    //     fontWeight: "bold",
+    //     color: "#000",
+    // },
     categoryTitle: {
         fontSize: 16,
         fontWeight: "bold",

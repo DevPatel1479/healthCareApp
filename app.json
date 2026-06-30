@@ -12,6 +12,12 @@
       "supportsTablet": true
     },
     "android": {
+       "configChanges": [
+        "orientation",
+        "screenSize",
+        "keyboardHidden",
+        "locale"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -40,7 +46,16 @@
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -51,6 +66,12 @@
       "eas": {
         "projectId": "756c33a9-42c2-493c-9f91-ca51ef7dbec1"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/756c33a9-42c2-493c-9f91-ca51ef7dbec1"
     }
   }
 }

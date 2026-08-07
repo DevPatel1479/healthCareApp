@@ -1,24 +1,41 @@
-const BASE_URL_LIVE = "https://health-care-backend-eight.vercel.app/api";
+// const BASE_URL_LIVE = "https://health-care-backend-eight.vercel.app/api";
 
-const BASE_WEBSOCKET_URL_LIVE = "https://healthcarebackend-gcdo.onrender.com/api";
+// const BASE_WEBSOCKET_URL_LIVE = "https://healthcarebackend-gcdo.onrender.com/api";
 
-const BASE_SOCKET_URL = "https://healthcarebackend-gcdo.onrender.com/";
+// const BASE_SOCKET_URL = "https://healthcarebackend-gcdo.onrender.com/";
+
+
+const DOMAIN = "https://kutumbijan.com";
+
+const BASE_URL_LIVE = `${DOMAIN}/api`;
+
+const BASE_WEBSOCKET_URL_LIVE = `${DOMAIN}/api`;
+
+const BASE_SOCKET_URL = DOMAIN;
+
+
+
+
 
 export const ENDPOINTS = {
 
-    login: () => `${BASE_URL_LIVE}/auth/login`,
-    sendOtp: () => `${BASE_URL_LIVE}/send-otp`,
-    verifyOtp: () => `${BASE_URL_LIVE}/verify-otp`,
-    getCaregiverTasks: (caregiverId: Number) => `${BASE_WEBSOCKET_URL_LIVE}/caregiver/${caregiverId}/tasks`,
-    updateTasksStatus: () => `${BASE_WEBSOCKET_URL_LIVE}/tasks/update-status`,
-    getPatientTasks: (patientId: string) => `${BASE_WEBSOCKET_URL_LIVE}/patient/${patientId}/tasks`,
-    createPatientTask: () => `${BASE_WEBSOCKET_URL_LIVE}/patient/create-task`,
-    websocketApiRealTimeUpdates: () => `${BASE_WEBSOCKET_URL_LIVE}`,
-    baseWebsocketApiRealTimeUpdates: () => `${BASE_SOCKET_URL}`,
-    getPatientReports: () => `${BASE_WEBSOCKET_URL_LIVE}/patient/daily-report`,
-    uploadFile: () => `${BASE_URL_LIVE}/upload`,
-    getPatientQrCode: (patientId: string) => `${BASE_URL_LIVE}/patient/${patientId}/qr-code`,
-    verifyCaregiverQr: () => `${BASE_URL_LIVE}/verify-caregiver-qr`,
+    login: () => `/auth/login`,
+    sendOtp: () => `/send-otp`,
+    verifyOtp: () => `/verify-otp`,
+    getCaregiverTasks: (caregiverId: number) => `/caregiver/${caregiverId}/tasks`,
+    updateTasksStatus: () => `/tasks/update-status`,
+    getPatientTasks: (patientId: string) => `/patient/${patientId}/tasks`,
+    createPatientTask: () => `/patient/create-task`,
+    websocketApiRealTimeUpdates: () => `/`,
+    getPatientReports: () => `/patient/daily-report`,
+    uploadFile: () => `/upload`,
+    getPatientQrCode: (patientId: string) => `/patient/${patientId}/qr-code`,
+    verifyCaregiverQr: () => `/caregiver/verify-qr`,
     getFamilyLeadContacts: (patientId: string) =>
-        `${BASE_URL_LIVE}/patient/${patientId}/family-contacts`,
+        `/patient/${patientId}/family-contacts`,
+
+    refreshCaregiver: () => '/patient/refresh-caregiver',
+
+    baseWebsocketApiRealTimeUpdates: () => `${BASE_SOCKET_URL}`,
+
 };

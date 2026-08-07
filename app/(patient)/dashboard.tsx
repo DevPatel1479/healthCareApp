@@ -1,4 +1,10 @@
 import { useEffect, useState } from "react";
+import DateTimePicker, {
+    DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
+
+
+
 import {
     ActivityIndicator,
     Keyboard,
@@ -13,7 +19,8 @@ import {
     View,
     Image,
     Linking,
-    FlatList
+    FlatList,
+    Platform
 } from "react-native";
 
 import StatsHeader from "@/components/dashboard/StatsHeader";
@@ -21,9 +28,12 @@ import TaskCard from "@/components/dashboard/TaskCard";
 import { ENDPOINTS } from "@/api/endpoints";
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { connectPatientSocket } from "@/services/socket";
+import { connectPatientSocket, disconnectSocket } from "@/services/socket";
+import { styles } from "../../styles/patient.styles";
+import { apiClient } from "@/api/apiClient";
+import { tokenStorage } from "@/api/tokenStorage";
 
 
 
@@ -67,8 +77,87 @@ type GroupedTasks = Record<string, TaskAssignment[]>;
 
 export default function PatientDashboard() {
     const router = useRouter();
+    const { date: routeDate } =
+        useLocalSearchParams<{
+            date?: string;
+        }>();
     const { width, height } = useWindowDimensions();
     const [refreshing, setRefreshing] = useState(false);
+
+    const getTodayString = () => {
+        const today = new Date();
+
+        const year = today.getFullYear();
+
+        const month = String(
+            today.getMonth() + 1
+        ).padStart(2, "0");
+
+        const day = String(
+            today.getDate()
+        ).padStart(2, "0");
+
+        return `${year}-${month}-${day}`;
+    };
+
+
+    const formatDateForDisplay = (
+        dateString: string
+    ) => {
+        const [year, month, day] =
+            dateString.split("-").map(Number);
+
+        const date = new Date(
+            year,
+            month - 1,
+            day
+        );
+
+        return date.toLocaleDateString(
+            "en-IN",
+            {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+            }
+        );
+    };
+
+
+    const todayString = getTodayString();
+
+    const selectedDate =
+        typeof routeDate === "string" &&
+            /^\d{4}-\d{2}-\d{2}$/.test(routeDate)
+            ? routeDate
+            : todayString;
+
+
+    const isCurrentDate =
+        selectedDate === todayString;
+
+
+    const isHistoricalDate =
+        !isCurrentDate;
+
+
+    const [datePickerVisible, setDatePickerVisible] =
+        useState(false);
+
+
+    const getDateObject = (
+        dateString: string
+    ) => {
+        const [year, month, day] =
+            dateString.split("-").map(Number);
+
+        return new Date(
+            year,
+            month - 1,
+            day
+        );
+    };
 
     const [creating, setCreating] = useState(false);
     const [tasks, setTasks] = useState<TaskAssignment[]>([]);
@@ -118,6 +207,26 @@ export default function PatientDashboard() {
     const [imageModalLoading, setImageModalLoading] = useState(false);
     const [imageModalError, setImageModalError] = useState("");
 
+    const isSelectedDateToday = () => {
+        const today = new Date();
+
+        const todayString =
+            `${today.getFullYear()}-${String(
+                today.getMonth() + 1
+            ).padStart(2, "0")}-${String(
+                today.getDate()
+            ).padStart(2, "0")}`;
+
+        return selectedDate === todayString;
+    };
+    useEffect(() => {
+        if (isSelectedDateToday()) {
+            console.log("refreshing caregiver ... ");
+            refreshCaregiver();
+        }
+    }, [selectedDate]);
+
+
     useEffect(() => {
         const loadPatientName = async () => {
             try {
@@ -135,14 +244,49 @@ export default function PatientDashboard() {
     }, []);
 
     useEffect(() => {
+
+        if (isHistoricalDate) {
+            setModalVisible(false);
+        }
+
+    }, [isHistoricalDate]);
+
+    useEffect(() => {
         let socket: any;
+        let cancelled = false;
         const initializeSocket = async () => {
-            const referenceId = await AsyncStorage.getItem("reference_id");
-            if (!referenceId) {
-                console.log("Patient reference_id not found");
+
+
+            // ----------------------------------------
+            // HISTORICAL DATE
+            // ----------------------------------------
+            // Absolutely no socket connection.
+            // ----------------------------------------
+            if (!isCurrentDate) {
+                console.log(
+                    "Historical date selected:",
+                    selectedDate,
+                    "Socket disabled"
+                );
+
+                disconnectSocket();
+
                 return;
             }
 
+            // ----------------------------------------
+            // CURRENT DATE
+            // ----------------------------------------
+            const referenceId = await AsyncStorage.getItem("reference_id");
+            if (!referenceId || cancelled) {
+                console.log("Patient reference_id not found");
+                return;
+            }
+            console.log(
+                "Current date selected:",
+                selectedDate,
+                "Socket enabled"
+            );
 
 
             socket = connectPatientSocket(Number(referenceId)); // 🔥 patient id
@@ -236,12 +380,24 @@ export default function PatientDashboard() {
         initializeSocket();
 
         return () => {
+            cancelled = true;
+
+
             if (socket) {
                 socket.off("task_updated");
                 socket.off("daily_tasks_regenerated");
             }
+            // VERY IMPORTANT:
+            // When changing:
+            // today -> yesterday
+            // disconnect old socket.
+
+            disconnectSocket();
         };
-    }, []);
+    }, [
+        selectedDate,
+        isCurrentDate,
+    ]);
 
     const handleShowQr = async () => {
         try {
@@ -250,20 +406,21 @@ export default function PatientDashboard() {
             const patientId =
                 await AsyncStorage.getItem("reference_id");
 
-            const res = await fetch(
+            const res = await apiClient.get(
                 ENDPOINTS.getPatientQrCode(
                     String(patientId)
                 )
             );
 
-            const json = await res.json();
+            const json = await res.data;
+
 
             if (!json.success) {
                 throw new Error(
                     json.message || "Failed to load QR"
                 );
             }
-
+            console.log(`qr code url : ${json.qr_code_url}`);
             setQrCodeUrl(json.qr_code_url);
             setQrModalVisible(true);
 
@@ -291,6 +448,12 @@ export default function PatientDashboard() {
                     text: "Logout",
                     style: "destructive",
                     onPress: async () => {
+                        disconnectSocket();
+
+
+                        await tokenStorage.remove();
+
+
                         await AsyncStorage.clear();
 
                         router.replace("/(auth)/login");
@@ -299,27 +462,80 @@ export default function PatientDashboard() {
             ]
         );
     };
+
+    const refreshCaregiver = async () => {
+        try {
+
+            const res = await apiClient.get(
+                ENDPOINTS.refreshCaregiver()
+            );
+
+            const json = res.data;
+
+            if (!json.success) {
+                throw new Error(
+                    json.message || "Failed to refresh caregiver"
+                );
+            }
+
+
+
+            const updatedCaregiver = json.data?.caregiver;
+
+            console.log(updatedCaregiver);
+
+            if (updatedCaregiver) {
+                setCaregiver({
+                    name: updatedCaregiver.name,
+                    phone: updatedCaregiver.phone_number,
+                });
+            } else {
+                setCaregiver(null);
+            }
+
+        } catch (err: any) {
+            console.log(
+                "Refresh caregiver failed:",
+                err?.response?.data || err.message
+            );
+
+            throw err;
+        }
+    };
+
+
     // ---------------- FETCH TASKS ----------------
     const fetchTasks = async (showLoader = true) => {
         try {
             if (showLoader) {
                 setLoading(true);
-            } else {
-                setRefreshing(true);
             }
+            // } else {
+            //     setRefreshing(true);
+            // }
 
             setError("");
             const referenceId = await AsyncStorage.getItem("reference_id");
 
-            const res = await fetch(ENDPOINTS.getPatientTasks(String(referenceId)));
-            const json = await res.json();
+            const res = await apiClient.get(ENDPOINTS.getPatientTasks(String(referenceId)),
+                {
+                    params: {
+                        date: selectedDate,
+                    },
+                }
+            );
+            const json = await res.data;
 
             if (!json.success) {
                 throw new Error(json.message || "Failed to fetch tasks");
             }
             console.log(json);
             setTasks(json.data || []);
-            setCaregiver(json.caregiver || null);
+            // Only if your task API actually returns caregiver
+            if (json.caregiver) {
+                setCaregiver(json.caregiver);
+            }
+            // setCaregiver(json.caregiver || null);
         } catch (err: any) {
             const message = err.message || "Something went wrong";
 
@@ -330,13 +546,50 @@ export default function PatientDashboard() {
             }
         } finally {
             setLoading(false);
+            // setRefreshing(false);
+        }
+    };
+
+    const handleRefresh = async () => {
+        setRefreshing(true);
+
+        try {
+            if (isSelectedDateToday()) {
+
+                // Current date:
+                // refresh both tasks and current caregiver
+                await Promise.all([
+                    fetchTasks(false),
+                    refreshCaregiver(),
+                ]);
+            } else {
+                console.log("not calling refresh caregiver");
+                // Historical date:
+                // ONLY fetch historical tasks.
+                // Do NOT call refreshCaregiver because it is
+                // current-date based.
+                await fetchTasks(false);
+            }
+        } catch (err: any) {
+            console.log(
+                "Refresh error:",
+                err?.response?.data || err.message
+            );
+
+            Alert.alert(
+                "Refresh Failed",
+                err?.response?.data?.message ||
+                err.message ||
+                "Unable to refresh dashboard"
+            );
+        } finally {
             setRefreshing(false);
         }
     };
 
     useEffect(() => {
         fetchTasks(true);
-    }, []);
+    }, [selectedDate]);
 
     // ---------------- GROUP ----------------
 
@@ -401,7 +654,14 @@ export default function PatientDashboard() {
 
     // ---------------- CREATE TASK ----------------
     const handleCreateTask = async () => {
+        if (isHistoricalDate) {
+            Alert.alert(
+                "Historical Date",
+                "Tasks cannot be created for a previous date."
+            );
 
+            return;
+        }
         if (!taskInput.trim()) {
 
             Alert.alert(
@@ -416,28 +676,21 @@ export default function PatientDashboard() {
 
             setCreating(true);
             const referenceId = await AsyncStorage.getItem("reference_id");
-            const res = await fetch(
+            const res = await apiClient.post(
                 ENDPOINTS.createPatientTask(),
                 {
-                    method: "POST",
+                    patient_id: Number(referenceId),
+                    description: taskInput,
 
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
+                    scheduled_time: null,
 
-                    body: JSON.stringify({
-                        patient_id: Number(referenceId),
-                        description: taskInput,
+                    // ✅ send enum exactly as backend expects
+                    task_category: selectedCategory,
 
-                        scheduled_time: null,
-
-                        // ✅ send enum exactly as backend expects
-                        task_category: selectedCategory,
-                    }),
                 }
             );
 
-            const json = await res.json();
+            const json = await res.data;
 
             if (!json.success) {
 
@@ -462,10 +715,12 @@ export default function PatientDashboard() {
             );
 
         } catch (err: any) {
-
+            console.log("STATUS:", err?.response?.status);
+            console.log("DATA:", err?.response?.data);
+            console.log("MESSAGE:", err?.message);
             Alert.alert(
                 "Error",
-                err.message || "Something went wrong"
+                err?.response?.data?.message || "Something went wrong"
             );
 
         } finally {
@@ -473,6 +728,63 @@ export default function PatientDashboard() {
             setCreating(false);
         }
     };
+
+    const handleDateChange = (
+        event: DateTimePickerEvent,
+        date?: Date
+    ) => {
+        if (Platform.OS === "android") {
+            setDatePickerVisible(false);
+        }
+
+        if (
+            event.type === "dismissed" ||
+            !date
+        ) {
+            return;
+        }
+
+        const today = getDateObject(todayString);
+
+        today.setHours(0, 0, 0, 0);
+
+        date.setHours(0, 0, 0, 0);
+
+        // Don't allow future dates
+        if (date > today) {
+            Alert.alert(
+                "Invalid Date",
+                "You can only select today or a previous date."
+            );
+
+            return;
+        }
+
+        const year = date.getFullYear();
+
+        const month = String(
+            date.getMonth() + 1
+        ).padStart(2, "0");
+
+        const day = String(
+            date.getDate()
+        ).padStart(2, "0");
+
+        const newDate =
+            `${year}-${month}-${day}`;
+
+        setDatePickerVisible(false);
+
+        router.replace({
+            pathname:
+                "/(patient)/dashboard",
+            params: {
+                date: newDate,
+            },
+        });
+    };
+
+
     // ---------------- SOS ----------------
     const handleSOS = async () => {
         try {
@@ -481,13 +793,13 @@ export default function PatientDashboard() {
             const referenceId = await AsyncStorage.getItem("reference_id");
             const patientId = referenceId!;
 
-            const response = await fetch(
+            const response = await apiClient.get(
                 ENDPOINTS.getFamilyLeadContacts(patientId)
             );
 
-            const data = await response.json();
+            const data = await response.data;
 
-            if (!response.ok || !data.success) {
+            if (!data.success) {
                 throw new Error(
                     data.message ||
                     "Unable to fetch emergency contacts"
@@ -597,7 +909,8 @@ export default function PatientDashboard() {
 
                         <TouchableOpacity
                             style={styles.circleBtn}
-                            onPress={() => fetchTasks(false)}
+                            onPress={handleRefresh}
+
                             disabled={refreshing}
                         >
                             {refreshing ? (
@@ -632,6 +945,69 @@ export default function PatientDashboard() {
                         title="Client Dashboard"
 
                     />
+                    {/* -------------------------------- */}
+                    {/* SELECTED DATE */}
+                    {/* -------------------------------- */}
+
+                    <View style={styles.selectedDateCard}>
+
+                        <View style={styles.selectedDateInfo}>
+
+                            <Ionicons
+                                name="calendar-outline"
+                                size={22}
+                                color="#2563eb"
+                            />
+
+                            <View
+                                style={{
+                                    flex: 1,
+                                    marginLeft: 10,
+                                }}
+                            >
+
+                                <Text
+                                    style={styles.selectedDateLabel}
+                                >
+                                    {isHistoricalDate
+                                        ? "Historical tasks"
+                                        : "Today's tasks"}
+                                </Text>
+
+                                <Text
+                                    style={styles.selectedDateText}
+                                >
+                                    {formatDateForDisplay(
+                                        selectedDate
+                                    )}
+                                </Text>
+
+                            </View>
+
+                        </View>
+
+
+                        <TouchableOpacity
+                            style={styles.changeDateButton}
+                            onPress={() =>
+                                setDatePickerVisible(true)
+                            }
+                        >
+                            <Ionicons
+                                name="calendar"
+                                size={17}
+                                color="#2563eb"
+                            />
+
+                            <Text
+                                style={styles.changeDateText}
+                            >
+                                Change
+                            </Text>
+                        </TouchableOpacity>
+
+                    </View>
+
                     <TouchableOpacity
                         style={styles.reportCard}
                         activeOpacity={0.9}
@@ -698,37 +1074,51 @@ export default function PatientDashboard() {
                                             />
 
                                             {/* ✅ OBSERVATION SECTION */}
-                                            {task.observation && (
+                                            {(task.observation || task.photo_evidence) && (
                                                 <View style={styles.observationContainer}>
 
                                                     <View style={styles.observationHeader}>
-                                                        <Ionicons name="document-text-outline" size={16} color="#0369a1" />
-                                                        <Text style={styles.observationLabel}>Caregiver Note</Text>
+                                                        <Ionicons
+                                                            name="document-text-outline"
+                                                            size={16}
+                                                            color="#0369a1"
+                                                        />
+                                                        <Text style={styles.observationLabel}>
+                                                            Caregiver Details
+                                                        </Text>
                                                     </View>
 
-                                                    <TouchableOpacity
-                                                        style={styles.observationBtn}
-                                                        onPress={() => {
-                                                            setSelectedObservation(task.observation ?? null);
-                                                            setObservationModal(true);
-                                                        }}
-                                                    >
-                                                        <Ionicons name="eye-outline" size={16} color="#fff" />
-                                                        <Text style={styles.observationText}>
-                                                            View Observation
-                                                        </Text>
-                                                    </TouchableOpacity>
+                                                    {/* Observation Button */}
+                                                    {task.observation && (
+                                                        <TouchableOpacity
+                                                            style={styles.observationBtn}
+                                                            onPress={() => {
+                                                                setSelectedObservation(task.observation!);
+                                                                setObservationModal(true);
+                                                            }}
+                                                        >
+                                                            <Ionicons
+                                                                name="eye-outline"
+                                                                size={16}
+                                                                color="#fff"
+                                                            />
+                                                            <Text style={styles.observationText}>
+                                                                View Observation
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    )}
+
+                                                    {/* Image Button */}
                                                     {task.photo_evidence && (
                                                         <TouchableOpacity
                                                             style={[
                                                                 styles.observationBtn,
-                                                                { marginTop: 8 }
+                                                                task.observation ? { marginTop: 8 } : null,
                                                             ]}
                                                             onPress={() => {
-                                                                const url = task.photo_evidence ?? null;
-                                                                setSelectedImageUrl(url);
+                                                                setSelectedImageUrl(task.photo_evidence!);
                                                                 setImageModalError("");
-                                                                setImageModalLoading(!!url);
+                                                                setImageModalLoading(true);
                                                                 setImageModal(true);
                                                             }}
                                                         >
@@ -737,7 +1127,6 @@ export default function PatientDashboard() {
                                                                 size={16}
                                                                 color="#fff"
                                                             />
-
                                                             <Text style={styles.observationText}>
                                                                 View Image
                                                             </Text>
@@ -758,10 +1147,30 @@ export default function PatientDashboard() {
 
             {/* ➕ CREATE TASK FAB */}
             <TouchableOpacity
-                style={styles.addFab}
-                onPress={() => setModalVisible(true)}
+                style={[
+                    styles.addFab,
+                    isHistoricalDate &&
+                    styles.disabledFab,
+                ]}
+                onPress={() => {
+
+                    if (isHistoricalDate) {
+                        return;
+                    }
+
+                    setModalVisible(true);
+                }}
+                disabled={isHistoricalDate}
             >
-                <Text style={styles.addIcon}>＋</Text>
+                <Text
+                    style={[
+                        styles.addIcon,
+                        isHistoricalDate &&
+                        styles.disabledFabIcon,
+                    ]}
+                >
+                    ＋
+                </Text>
             </TouchableOpacity>
 
             {/* 🚨 SOS BUTTON */}
@@ -884,8 +1293,15 @@ export default function PatientDashboard() {
                         {/* CREATE BUTTON */}
                         <TouchableOpacity
                             onPress={handleCreateTask}
-                            style={styles.createTaskBtn}
-                            disabled={creating}
+                            style={[
+                                styles.createTaskBtn,
+                                isHistoricalDate &&
+                                styles.disabledCreateTaskBtn,
+                            ]}
+                            disabled={
+                                creating ||
+                                isHistoricalDate
+                            }
                             activeOpacity={0.85}
                         >
 
@@ -1234,967 +1650,30 @@ export default function PatientDashboard() {
                     </View>
                 </View>
             </Modal>
+            {/* -------------------------------- */}
+            {/* DATE PICKER */}
+            {/* -------------------------------- */}
+
+            {datePickerVisible && (
+                <DateTimePicker
+                    value={getDateObject(selectedDate)}
+                    mode="date"
+                    display={
+                        Platform.OS === "ios"
+                            ? "spinner"
+                            : "default"
+                    }
+                    maximumDate={
+                        getDateObject(todayString)
+                    }
+                    onChange={
+                        handleDateChange
+                    }
+                />
+            )}
+
         </SafeAreaView>
     );
 }
 
 
-const styles = StyleSheet.create({
-    imageModalBackdrop: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.95)",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: 16,
-    },
-    imageCloseBtn: {
-        position: "absolute",
-        top: 50,
-        right: 16,
-        zIndex: 10,
-    },
-    imageModalContent: {
-        width: "100%",
-        height: "80%",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    patientImage: {
-        width: "100%",
-        height: "100%",
-        maxWidth: 900,
-        maxHeight: 700,
-    },
-    imageLoaderOverlay: {
-        position: "absolute",
-        zIndex: 2,
-        alignItems: "center",
-    },
-    imageLoaderText: {
-        color: "#fff",
-        marginTop: 12,
-        fontSize: 14,
-    },
-    imageErrorText: {
-        color: "#fff",
-        fontSize: 16,
-        textAlign: "center",
-    },
-    modalBackdrop: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.45)",
-        justifyContent: "flex-end",
-    },
-
-    bottomSheet: {
-        backgroundColor: "#FFF",
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        paddingHorizontal: 20,
-        paddingTop: 12,
-        paddingBottom: 30,
-        maxHeight: "70%",
-    },
-
-    sheetHandle: {
-        alignSelf: "center",
-        width: 50,
-        height: 5,
-        borderRadius: 3,
-        backgroundColor: "#D1D5DB",
-        marginBottom: 16,
-    },
-
-    sheetHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 20,
-    },
-
-    sheetTitle: {
-        fontSize: 20,
-        fontWeight: "700",
-        color: "#111827",
-    },
-
-    closeText: {
-        color: "#2563EB",
-        fontWeight: "600",
-        fontSize: 15,
-    },
-
-    contactCard: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        paddingVertical: 14,
-        paddingHorizontal: 16,
-        borderRadius: 16,
-        backgroundColor: "#F9FAFB",
-        marginBottom: 12,
-    },
-
-    contactName: {
-        fontSize: 16,
-        fontWeight: "600",
-        color: "#111827",
-    },
-
-    contactPhone: {
-        marginTop: 4,
-        color: "#6B7280",
-        fontSize: 14,
-    },
-
-    callButton: {
-        backgroundColor: "#10B981",
-        paddingHorizontal: 18,
-        paddingVertical: 10,
-        borderRadius: 12,
-    },
-
-    callButtonText: {
-        color: "#FFF",
-        fontWeight: "700",
-    },
-
-    errorContainer: {
-        alignItems: "center",
-        paddingVertical: 30,
-    },
-
-    errorTitle: {
-        fontSize: 18,
-        fontWeight: "700",
-        marginBottom: 8,
-        color: "#DC2626",
-    },
-
-    errorMessage: {
-        textAlign: "center",
-        color: "#6B7280",
-    },
-
-    emptyContainer: {
-        alignItems: "center",
-        paddingVertical: 30,
-    },
-
-    emptyText: {
-        color: "#6B7280",
-        fontSize: 15,
-    },
-    qrOverlay: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        backgroundColor: "rgba(0,0,0,0.55)",
-    },
-
-    qrModalCard: {
-        width: "85%",
-        maxWidth: 360,
-
-        backgroundColor: "#fff",
-
-        borderRadius: 24,
-
-        padding: 24,
-
-        alignItems: "center",
-
-        elevation: 8,
-    },
-
-    qrClose: {
-        position: "absolute",
-        right: 15,
-        top: 15,
-    },
-
-    qrTitle: {
-        fontSize: 22,
-        fontWeight: "700",
-        color: "#111827",
-        marginTop: 10,
-    },
-
-    qrSubtitle: {
-        fontSize: 14,
-        color: "#6b7280",
-        marginTop: 4,
-        marginBottom: 18,
-    },
-
-    qrImage: {
-        width: 240,
-        height: 240,
-    },
-
-    emptyQrContainer: {
-        alignItems: "center",
-        paddingVertical: 30,
-    },
-
-    emptyQrText: {
-        marginTop: 10,
-        color: "#ef4444",
-        fontWeight: "600",
-    },
-
-    qrButton: {
-        marginTop: 20,
-        backgroundColor: "#2563eb",
-        width: "100%",
-        borderRadius: 12,
-        paddingVertical: 14,
-        alignItems: "center",
-    },
-
-    qrButtonText: {
-        color: "#fff",
-        fontWeight: "700",
-        fontSize: 16,
-    },
-
-    topHeader: {
-        paddingHorizontal: 20,
-        marginBottom: 16,
-    },
-
-    profileCard: {
-        backgroundColor: "#fff",
-        borderRadius: 18,
-        padding: 16,
-
-        elevation: 4,
-
-        shadowColor: "#000",
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-
-        marginBottom: 12,
-    },
-
-    profileContent: {
-        flexDirection: "row",
-        alignItems: "center",
-    },
-
-    actionRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-    },
-
-    circleBtn: {
-        flex: 1,
-
-        backgroundColor: "#fff",
-
-        marginHorizontal: 4,
-
-        height: 52,
-
-        borderRadius: 14,
-
-        justifyContent: "center",
-        alignItems: "center",
-
-        elevation: 3,
-
-        shadowColor: "#000",
-        shadowOpacity: 0.08,
-        shadowRadius: 6,
-    },
-    createTaskModalBox: {
-        width: "100%",
-        backgroundColor: "#fff",
-
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-
-        padding: 22,
-
-        maxHeight: "85%",
-    },
-    createTaskHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        marginBottom: 20,
-    },
-
-    createTaskTitle: {
-        fontSize: 22,
-        fontWeight: "700",
-        color: "#111827",
-    },
-
-    inputLabel: {
-        fontSize: 14,
-        fontWeight: "600",
-        color: "#374151",
-        marginBottom: 10,
-        marginTop: 8,
-    },
-
-    createTaskInput: {
-        borderWidth: 1,
-        borderColor: "#d1d5db",
-        borderRadius: 16,
-        padding: 16,
-        minHeight: 110,
-        fontSize: 15,
-        color: "#111827",
-        textAlignVertical: "top",
-        backgroundColor: "#f9fafb",
-    },
-
-    categoryContainer: {
-        marginTop: 6,
-        gap: 12,
-    },
-
-    categoryOption: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingVertical: 14,
-        paddingHorizontal: 14,
-        borderRadius: 16,
-        borderWidth: 1.5,
-        borderColor: "#e5e7eb",
-        backgroundColor: "#fff",
-    },
-
-    categoryOptionActive: {
-        borderColor: "#2563eb",
-        backgroundColor: "#eff6ff",
-    },
-
-    categoryOptionText: {
-        marginLeft: 12,
-        fontSize: 15,
-        color: "#374151",
-        fontWeight: "500",
-        flex: 1,
-    },
-
-    categoryOptionTextActive: {
-        color: "#2563eb",
-        fontWeight: "700",
-    },
-
-    radioOuter: {
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        borderWidth: 2,
-        borderColor: "#9ca3af",
-        alignItems: "center",
-        justifyContent: "center",
-    },
-
-    radioOuterActive: {
-        borderColor: "#2563eb",
-    },
-
-    radioInner: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
-        backgroundColor: "#2563eb",
-    },
-
-    createTaskBtn: {
-
-        marginTop: 24,
-        backgroundColor: "#2563eb",
-        borderRadius: 18,
-        paddingVertical: 16,
-        alignItems: "center",
-        justifyContent: "center",
-        flexDirection: "row",
-        gap: 10,
-    },
-
-    createTaskBtnText: {
-        color: "#fff",
-        fontWeight: "700",
-        fontSize: 16,
-    },
-    reportCard: {
-        backgroundColor: "#ffffff",
-        marginTop: 18,
-        marginBottom: 6,
-        borderRadius: 22,
-        paddingVertical: 16,
-        paddingHorizontal: 18,
-        flexDirection: "row",
-        alignItems: "center",
-        shadowColor: "#000",
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-        elevation: 5,
-        borderWidth: 1,
-        borderColor: "#e0f2fe",
-    },
-
-    reportIconContainer: {
-        width: 62,
-        height: 62,
-        borderRadius: 31,
-        backgroundColor: "#eff6ff",
-        justifyContent: "center",
-        alignItems: "center",
-        marginRight: 16,
-    },
-
-    reportContent: {
-        flex: 1,
-    },
-
-    reportTitle: {
-        fontSize: 18,
-        fontWeight: "800",
-        color: "#111827",
-        marginBottom: 4,
-    },
-
-    reportSubtitle: {
-        fontSize: 14,
-        color: "#6b7280",
-        lineHeight: 20,
-    },
-
-    reportArrow: {
-        marginLeft: 12,
-    },
-    caregiverModalCard: {
-        backgroundColor: "#fff",
-        borderRadius: 28,
-        padding: 24,
-        width: "100%",
-        maxWidth: 420,
-        alignSelf: "center",
-        shadowColor: "#000",
-        shadowOpacity: 0.18,
-        shadowRadius: 20,
-        elevation: 12,
-    },
-
-    caregiverHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 24,
-    },
-
-    caregiverTitle: {
-        flex: 1,
-        fontSize: 22,
-        fontWeight: "800",
-        color: "#111827",
-        marginLeft: 12,
-    },
-
-    caregiverCloseBtn: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: "#f3f4f6",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-
-    caregiverAvatar: {
-        width: 92,
-        height: 92,
-        borderRadius: 46,
-        backgroundColor: "#eff6ff",
-        justifyContent: "center",
-        alignItems: "center",
-        alignSelf: "center",
-        marginBottom: 24,
-    },
-
-    infoCard: {
-        backgroundColor: "#f8fafc",
-        borderRadius: 20,
-        padding: 18,
-    },
-
-    infoRow: {
-        flexDirection: "row",
-        alignItems: "center",
-    },
-
-    infoContent: {
-        flex: 1,
-        marginLeft: 14,
-    },
-
-    infoLabel: {
-        fontSize: 13,
-        color: "#6b7280",
-        marginBottom: 4,
-    },
-
-    infoValue: {
-        fontSize: 17,
-        fontWeight: "700",
-        color: "#111827",
-    },
-
-    infoDivider: {
-        height: 1,
-        backgroundColor: "#e5e7eb",
-        marginVertical: 18,
-    },
-
-    emptyState: {
-        alignItems: "center",
-        paddingVertical: 24,
-    },
-
-    emptyTitle: {
-        marginTop: 16,
-        fontSize: 20,
-        fontWeight: "700",
-        color: "#111827",
-    },
-
-    emptySubtitle: {
-        marginTop: 8,
-        fontSize: 14,
-        color: "#6b7280",
-        textAlign: "center",
-        lineHeight: 22,
-    },
-    // profileCard: {
-    //     flex: 1,
-    //     backgroundColor: "#ffffff",
-    //     borderRadius: 20,
-    //     marginRight: 12,
-    //     shadowColor: "#000",
-    //     shadowOpacity: 0.08,
-    //     shadowRadius: 10,
-    //     elevation: 4,
-    // },
-
-    // profileContent: {
-    //     flexDirection: "row",
-    //     alignItems: "center",
-    //     padding: 14,
-    // },
-
-    avatarContainer: {
-        marginRight: 14,
-    },
-
-    profileInfo: {
-        flex: 1,
-    },
-
-    welcomeText: {
-        fontSize: 13,
-        color: "#6b7280",
-        fontWeight: "500",
-    },
-
-    profileName: {
-        fontSize: 20,
-        fontWeight: "800",
-        color: "#111827",
-        marginTop: 2,
-        flexShrink: 1,
-    },
-
-    viewCaregiverText: {
-        fontSize: 14,
-        color: "#2563eb",
-        fontWeight: "600",
-        marginTop: 6,
-    },
-    topBar: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 20,
-        paddingHorizontal: 16,
-    },
-
-
-    profileSubText: {
-        fontSize: 12,
-        color: "#2563eb",
-        marginTop: 2,
-    },
-
-    topActions: {
-        flexDirection: "row",
-        gap: 10,
-    },
-
-    actionBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: "#ffffff",
-        justifyContent: "center",
-        alignItems: "center",
-        shadowColor: "#000",
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-        elevation: 3,
-    },
-    taskWrapper: {
-        marginBottom: 14,
-        backgroundColor: "#fff",
-        borderRadius: 12,
-        padding: 10,
-        shadowColor: "#000",
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
-        elevation: 2,
-    },
-
-    observationContainer: {
-        marginTop: 8,
-        paddingTop: 8,
-        borderTopWidth: 1,
-        borderTopColor: "#e5e7eb",
-    },
-
-    observationHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        marginBottom: 6,
-    },
-
-    observationLabel: {
-        fontSize: 12,
-        color: "#0369a1",
-        fontWeight: "600",
-    },
-
-    observationBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        backgroundColor: "#0284c7",
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 8,
-        alignSelf: "flex-start",
-    },
-
-    observationText: {
-        color: "#fff",
-        fontSize: 13,
-        fontWeight: "600",
-    },
-
-    modalCloseBtn: {
-        position: "absolute",
-        right: 12,
-        top: 12,
-        zIndex: 10,
-        backgroundColor: "#f1f5f9",
-        padding: 6,
-        borderRadius: 20,
-    },
-    avatarBtn: {
-        backgroundColor: "#f1f5f9",
-        padding: 6,
-        borderRadius: 20,
-    },
-    detailText: {
-        fontSize: 16,
-        marginBottom: 8,
-        color: "#111",
-    },
-
-    logoutIconBtn: {
-        backgroundColor: "#f1f5f9",
-        padding: 10,        // 🔥 bigger touch area
-        borderRadius: 20,
-    },
-    screenTitle: {
-        fontSize: 20,
-        fontWeight: "bold",
-        color: "#111",
-    },
-
-    logoutBtn: {
-        backgroundColor: "#111",
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 8,
-    },
-
-
-    modalButtonContainer: {
-        marginTop: 10,
-        gap: 12,   // 👈 THIS creates spacing between buttons
-        alignItems: "center",
-    },
-    categoryBlock: {
-        marginTop: 18,
-        padding: 12,
-        borderRadius: 12,
-        backgroundColor: "#fff",
-        shadowColor: "#000",
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
-        elevation: 2,
-    },
-
-    categoryHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 10,
-    },
-
-    taskList: {
-        paddingLeft: 8,
-        borderLeftWidth: 2,
-        borderLeftColor: "#e5e7eb",
-    },
-
-    countBadge: {
-        backgroundColor: "#111",
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
-    },
-
-    countText: {
-        color: "#fff",
-        fontSize: 12,
-        fontWeight: "bold",
-    },
-
-    closeBtn: {
-        position: "absolute",
-        right: 12,
-        top: 12,
-        zIndex: 10,
-    },
-
-    // closeText: {
-    //     fontSize: 20,
-    //     fontWeight: "bold",
-    //     color: "#000",
-    // },
-    categoryTitle: {
-        fontSize: 16,
-        fontWeight: "bold",
-        marginBottom: 10,
-        color: "#111",
-    },
-
-    center: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-
-    retryBtn: {
-        backgroundColor: "black",
-        padding: 10,
-        borderRadius: 8,
-    },
-
-    imageBtn: {
-        backgroundColor: "#2563eb",
-        paddingVertical: 12,
-        paddingHorizontal: 18,
-        borderRadius: 10,
-
-        alignSelf: "center",   // 👈 prevents full stretch
-        minWidth: 140,         // 👈 consistent button size
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    preview: {
-        width: "100%",
-        height: 180,
-        borderRadius: 10,
-        marginBottom: 10,
-    },
-    container: {
-        flex: 1,
-        backgroundColor: "#f8fafc",
-    },
-
-    //  COMPLETE FAB
-    completeFabContainer: {
-        position: "absolute",
-        bottom: 90,
-        right: 20,
-    },
-
-    completeFab: {
-        height: 64,
-        width: 64,
-        borderRadius: 32,
-        backgroundColor: "#ef4444",
-        justifyContent: "center",
-        alignItems: "center",
-        elevation: 8,
-    },
-
-    fabIcon: {
-        color: "#fff",
-        fontSize: 26,
-        fontWeight: "bold",
-    },
-
-    badge: {
-        position: "absolute",
-        top: 6,
-        right: 6,
-        backgroundColor: "#fff",
-        minWidth: 20,
-        height: 20,
-        borderRadius: 10,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-
-    badgeText: {
-        color: "#ef4444",
-        fontSize: 11,
-        fontWeight: "bold",
-    },
-
-    //  ADD FAB
-    addFab: {
-        position: "absolute",
-        bottom: 20,
-        right: 20,
-        height: 64,
-        width: 64,
-        borderRadius: 32,
-        backgroundColor: "#22c55e",
-        justifyContent: "center",
-        alignItems: "center",
-        elevation: 8,
-    },
-
-    addIcon: {
-        color: "#fff",
-        fontSize: 30,
-        fontWeight: "bold",
-    },
-
-    //  MODAL
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.5)",
-
-        justifyContent: "flex-end", // 👈 key fix (NOT center)
-    },
-    modalBox: {
-        backgroundColor: "#fff",
-        borderRadius: 20,
-        padding: 18,
-
-        width: "100%",
-        maxWidth: 420,
-        alignSelf: "center",
-
-        shadowColor: "#000",
-        shadowOpacity: 0.15,
-        shadowRadius: 12,
-        elevation: 8,
-    },
-
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: "bold",
-        marginBottom: 12,
-    },
-
-    input: {
-        borderWidth: 1,
-        borderColor: "#ddd",
-        borderRadius: 10,
-        padding: 12,
-        marginBottom: 16,
-    },
-
-    modalActions: {
-        flexDirection: "row",
-        justifyContent: "flex-end",
-        gap: 10,
-    },
-
-    cancelBtn: {
-        padding: 10,
-    },
-
-    addBtn: {
-        backgroundColor: "#22c55e",
-        paddingVertical: 12,
-        paddingHorizontal: 18,
-        borderRadius: 10,
-
-        alignSelf: "center",   // 👈 stops stretch
-        minWidth: 120,         // 👈 consistent button size
-        alignItems: "center",  // 👈 centers text
-        justifyContent: "center",
-    },
-    buttonPrimary: {
-        backgroundColor: "#2563eb",
-        paddingVertical: 12,
-        paddingHorizontal: 18,
-        borderRadius: 12,
-
-        alignSelf: "center",
-        minWidth: 160,
-
-        alignItems: "center",
-        justifyContent: "center",
-
-        flexDirection: "row",
-    },
-
-    buttonSuccess: {
-        backgroundColor: "#22c55e",
-        paddingVertical: 12,
-        paddingHorizontal: 18,
-        borderRadius: 12,
-
-        alignSelf: "center",
-        minWidth: 160,
-
-        alignItems: "center",
-        justifyContent: "center",
-
-        flexDirection: "row",
-    },
-    sosBtn: {
-        position: "absolute",
-        bottom: 20,
-        left: 20,
-        height: 70,
-        width: 70,
-        borderRadius: 35,
-        backgroundColor: "#dc2626",
-        justifyContent: "center",
-        alignItems: "center",
-        elevation: 10,
-    },
-
-    sosText: {
-        color: "#fff",
-        fontWeight: "bold",
-        fontSize: 18,
-    },
-
-
-
-});

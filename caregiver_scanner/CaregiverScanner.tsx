@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import axios from "axios";
 import { ENDPOINTS } from "@/api/endpoints";
+import { apiClient } from "@/api/apiClient";
 
 
 type ScanPhase = "idle" | "verifying" | "success" | "error";
@@ -109,7 +110,7 @@ export default function CaregiverScanner() {
         );
       }
 
-      const response = await axios.post(
+      const response = await apiClient.post(
         ENDPOINTS.verifyCaregiverQr(),
         {
           phone_number: phoneNumber,

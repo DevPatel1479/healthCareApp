@@ -28,7 +28,7 @@ export default function Index() {
 
         // FAMILY LEAD -> PATIENT DASHBOARD
         if (role === "family_lead") {
-          setRoute("/(patient)/dashboard");
+          setRoute("/(selectDate)/datepicker");
           return;
         }
 

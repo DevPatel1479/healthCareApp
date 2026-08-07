@@ -62,8 +62,18 @@ export const connectPatientSocket = (patientId: number) => {
 export const getSocket = () => socket;
 
 export const disconnectSocket = () => {
-    if (socket) {
-        socket.disconnect();
-        socket = null;
-    }
+    if (!socket) return;
+
+    console.log("🔌 Disconnecting socket...");
+
+    // Prevent Socket.IO from automatically reconnecting
+    socket.io.opts.reconnection = false;
+
+    socket.removeAllListeners();
+
+    socket.disconnect();
+
+    socket = null;
+
+    console.log("✅ Socket completely disconnected");
 };

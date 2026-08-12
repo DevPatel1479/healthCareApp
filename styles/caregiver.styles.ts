@@ -2,6 +2,67 @@ import { Dimensions, StyleSheet } from "react-native";
 
 
 export const styles = StyleSheet.create({
+    selectedDateCard: {
+        marginTop: 16,
+        marginBottom: 18,
+
+        backgroundColor: "#eff6ff",
+
+        borderWidth: 1,
+        borderColor: "#bfdbfe",
+
+        borderRadius: 14,
+
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+    },
+
+    selectedDateInfo: {
+        flexDirection: "row",
+        alignItems: "center",
+        flex: 1,
+        minWidth: 0,
+    },
+
+    selectedDateLabel: {
+        fontSize: 11,
+        color: "#64748b",
+        marginBottom: 2,
+    },
+
+    selectedDateText: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: "#1e3a8a",
+    },
+
+    changeDateButton: {
+        flexDirection: "row",
+        alignItems: "center",
+
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+
+        borderRadius: 9,
+
+        backgroundColor: "#ffffff",
+
+        borderWidth: 1,
+        borderColor: "#bfdbfe",
+
+        marginLeft: 10,
+    },
+
+    changeDateText: {
+        marginLeft: 5,
+        fontSize: 13,
+        fontWeight: "700",
+        color: "#2563eb",
+    },
 
     fullScreenImageContainer: {
         flex: 1,

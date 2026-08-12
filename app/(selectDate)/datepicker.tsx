@@ -3,6 +3,8 @@ import DateTimePicker, {
     DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 
@@ -11,7 +13,6 @@ import {
     Pressable,
     SafeAreaView,
     ScrollView,
-    StyleSheet,
     Text,
     View,
     useWindowDimensions,
@@ -79,6 +80,8 @@ const startOfDay = (date: Date) => {
 export default function PatientDatePickerScreen() {
 
     const router = useRouter();
+
+
 
     const { width } =
         useWindowDimensions();
@@ -185,7 +188,7 @@ export default function PatientDatePickerScreen() {
     // Continue
     // ----------------------------------------
 
-    const handleContinue = () => {
+    const handleContinue = async () => {
 
         setError("");
 
@@ -208,21 +211,44 @@ export default function PatientDatePickerScreen() {
         const date =
             formatDateForApi(selected);
 
+        try {
+            const role = await AsyncStorage.getItem("role");
 
-        console.log(
-            "Selected patient date:",
-            date
-        );
+            console.log("Selected date:", date);
+            console.log("Role:", role);
+            if (role === "family_lead") {
+                router.replace({
+                    pathname: "/(patient)/dashboard",
+                    params: {
+                        date,
+                    },
+                });
 
+                return;
+            }
 
-        router.replace({
-            pathname:
-                "/(patient)/dashboard",
+            if (role === "caregiver") {
+                router.replace({
+                    pathname: "/(caregiver)/dashboard",
+                    params: {
+                        date,
+                    },
+                });
 
-            params: {
-                date,
-            },
-        });
+                return;
+            }
+            setError("Invalid user role.");
+        }
+        catch (error) {
+            console.error(
+                "Failed to retrieve user role:",
+                error
+            );
+
+            setError(
+                "Unable to retrieve user information."
+            );
+        }
     };
 
 

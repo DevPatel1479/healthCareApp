@@ -20,6 +20,27 @@
 //   }
 // }
 
+/* *************** Changed on 08-08-2026 ************************/
+
+// {
+//   "cli": {
+//     "version": ">= 18.8.1",
+//     "appVersionSource": "remote"
+//   },
+//   "build": {
+//     "preview": {
+//       "distribution": "internal",
+//       "android": {
+//         "buildType": "apk"
+//       },
+//       "channel": "preview"
+//     },
+//      "production": {
+//       "channel": "production"
+//     }
+//   }
+// }
+
 
 
 {
@@ -27,7 +48,14 @@
     "version": ">= 18.8.1",
     "appVersionSource": "remote"
   },
+
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development"
+    },
+
     "preview": {
       "distribution": "internal",
       "android": {
@@ -35,7 +63,8 @@
       },
       "channel": "preview"
     },
-     "production": {
+
+    "production": {
       "channel": "production"
     }
   }

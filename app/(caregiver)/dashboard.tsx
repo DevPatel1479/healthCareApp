@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { CameraView, useCameraPermissions } from "expo-camera";
 
-import { Alert, Dimensions } from "react-native";
+import { Alert, Dimensions, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Animated,
   ActivityIndicator,
@@ -28,6 +28,10 @@ import { uploadImageToServer } from "@/services/uploadImageToServer";
 import { styles } from "../../styles/caregiver.styles";
 import { apiClient } from "@/api/apiClient";
 import { tokenStorage } from "@/api/tokenStorage";
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
+
 
 
 
@@ -117,6 +121,88 @@ const sortTasks = (tasks: TaskAssignment[]) => {
 
 export default function CaregiverDashboard() {
   const router = useRouter();
+
+  const { date: routeDate } =
+    useLocalSearchParams<{
+      date?: string;
+    }>();
+
+  const getTodayString = () => {
+    const today = new Date();
+
+    const year = today.getFullYear();
+
+    const month = String(
+      today.getMonth() + 1
+    ).padStart(2, "0");
+
+    const day = String(
+      today.getDate()
+    ).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+  };
+
+
+  const formatDateForDisplay = (
+    dateString: string
+  ) => {
+    const [year, month, day] =
+      dateString.split("-").map(Number);
+
+    const date = new Date(
+      year,
+      month - 1,
+      day
+    );
+
+    return date.toLocaleDateString(
+      "en-IN",
+      {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }
+    );
+  };
+
+
+  const todayString = getTodayString();
+
+  const selectedDate =
+    typeof routeDate === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(routeDate)
+      ? routeDate
+      : todayString;
+
+
+  const isCurrentDate =
+    selectedDate === todayString;
+
+
+  const isHistoricalDate =
+    !isCurrentDate;
+
+
+  const [datePickerVisible, setDatePickerVisible] =
+    useState(false);
+
+
+  const getDateObject = (
+    dateString: string
+  ) => {
+    const [year, month, day] =
+      dateString.split("-").map(Number);
+
+    return new Date(
+      year,
+      month - 1,
+      day
+    );
+  };
+
+
   const { width, height } = useWindowDimensions();
   const [updating, setUpdating] = useState(false);
 
@@ -152,6 +238,21 @@ export default function CaregiverDashboard() {
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
 
+  const isSelectedDateToday = () => {
+    const today = new Date();
+
+    const todayString =
+      `${today.getFullYear()}-${String(
+        today.getMonth() + 1
+      ).padStart(2, "0")}-${String(
+        today.getDate()
+      ).padStart(2, "0")}`;
+
+    return selectedDate === todayString;
+  };
+
+
+
   useEffect(() => {
     const loadCaregiverName = async () => {
       try {
@@ -168,6 +269,15 @@ export default function CaregiverDashboard() {
 
     loadCaregiverName();
   }, []);
+
+  useEffect(() => {
+
+    if (isHistoricalDate) {
+      setModalVisible(false);
+    }
+
+  }, [isHistoricalDate]);
+
 
   const handleLogout = () => {
     Alert.alert(
@@ -202,20 +312,35 @@ export default function CaregiverDashboard() {
 
   useEffect(() => {
     let socket: any;
-
+    let cancelled = false;
 
     const initializeSocket = async () => {
       try {
+        if (!isCurrentDate) {
+          console.log(
+            "Historical date selected:",
+            selectedDate,
+            "Socket disabled"
+          );
 
+          disconnectSocket();
 
-        const referenceId = await AsyncStorage.getItem("reference_id");
-
-        if (!referenceId) {
-          console.log("Caregiver reference_id not found");
           return;
         }
 
 
+        const referenceId = await AsyncStorage.getItem("reference_id");
+
+        if (!referenceId || cancelled) {
+          console.log("Caregiver reference_id not found");
+          return;
+        }
+
+        console.log(
+          "Current date selected:",
+          selectedDate,
+          "Socket enabled"
+        );
         socket = connectSocket(Number(referenceId));
 
         // 🔥 LISTEN FOR TASK UPDATE
@@ -327,6 +452,7 @@ export default function CaregiverDashboard() {
 
     initializeSocket();
     return () => {
+      cancelled = true;
       if (socket) {
         socket.off("task_updated");
         socket.off("task_assigned");
@@ -336,7 +462,10 @@ export default function CaregiverDashboard() {
       disconnectSocket(); // cleanup
     };
 
-  }, []);
+  }, [
+    selectedDate,
+    isCurrentDate,
+  ]);
 
 
 
@@ -348,16 +477,43 @@ export default function CaregiverDashboard() {
       setError("");
       const referenceId = await AsyncStorage.getItem("reference_id");
       console.log(`Fetched caregiver id ${referenceId}`);
-      const res = await apiClient.get(ENDPOINTS.getCaregiverTasks(Number(referenceId)));
+      const res = await apiClient.get(ENDPOINTS.getCaregiverTasks(Number(referenceId)),
+        {
+          params: {
+            date: selectedDate,
+          },
+        }
+
+      );
       const json = await res.data;
 
       if (!json.success) throw new Error(json.message || "Failed to load");
 
       setTasks(json.data);
       setPatientInfo(json.patient ?? null);
-    } catch (err: unknown) {
+    } catch (err: any) {
+      const status = err?.response?.status;
+      console.log(
+        "Caregiver task fetch error:",
+        status,
+        err?.response?.data
+      );
+      if (status === 404) {
+
+        // This is an expected state, NOT a page error.
+        setTasks([]);
+        setPatientInfo(null);
+        setError("");
+
+        return;
+      }
       const message =
-        err instanceof Error ? err.message : "Something went wrong";
+        err?.response?.data?.message ||
+        err?.message ||
+        "Something went wrong";
+
+      setTasks([]);
+      setPatientInfo(null);
       setError(message);
     } finally {
       setLoading(false);
@@ -366,7 +522,7 @@ export default function CaregiverDashboard() {
 
   useEffect(() => {
     fetchTasks();
-  }, []);
+  }, [selectedDate]);
 
 
   // ---------------- GROUP BY CATEGORY ----------------
@@ -431,9 +587,73 @@ export default function CaregiverDashboard() {
     });
   });
 
+
+  const handleDateChange = (
+    event: DateTimePickerEvent,
+    date?: Date
+  ) => {
+    if (Platform.OS === "android") {
+      setDatePickerVisible(false);
+    }
+
+    if (
+      event.type === "dismissed" ||
+      !date
+    ) {
+      return;
+    }
+
+    const today = getDateObject(todayString);
+
+    today.setHours(0, 0, 0, 0);
+
+    date.setHours(0, 0, 0, 0);
+
+    // Don't allow future dates
+    if (date > today) {
+      Alert.alert(
+        "Invalid Date",
+        "You can only select today or a previous date."
+      );
+
+      return;
+    }
+
+    const year = date.getFullYear();
+
+    const month = String(
+      date.getMonth() + 1
+    ).padStart(2, "0");
+
+    const day = String(
+      date.getDate()
+    ).padStart(2, "0");
+
+    const newDate =
+      `${year}-${month}-${day}`;
+
+    setDatePickerVisible(false);
+
+    router.replace({
+      pathname:
+        "/(caregiver)/dashboard",
+      params: {
+        date: newDate,
+      },
+    });
+  };
+
+
   // ---------------- TOGGLE ----------------
   const handleToggle = (item: TaskAssignment) => {
+
+    if (isHistoricalDate) {
+      return;
+    }
+
     if (item.status === "completed") return;
+
+
 
     setSelectedTask(item);
     setModalVisible(true);
@@ -557,8 +777,14 @@ export default function CaregiverDashboard() {
     }
   };
 
-  // ---------------- COMPLETE (DUMMY) ----------------
+
   const handleSubmit = async () => {
+
+    if (isHistoricalDate) {
+      return;
+    }
+
+
     if (!selectedTask) return;
 
     try {
@@ -716,7 +942,6 @@ export default function CaregiverDashboard() {
 
                 <TouchableOpacity
                   onPress={() => {
-                    if (!patientInfo) return;
                     setPatientModal(true);
                   }}
                   activeOpacity={0.7}
@@ -761,6 +986,71 @@ export default function CaregiverDashboard() {
             title="Caregiver Dashboard"
 
           />
+
+          {/* -------------------------------- */}
+          {/* SELECTED DATE */}
+          {/* -------------------------------- */}
+
+          <View style={styles.selectedDateCard}>
+
+            <View style={styles.selectedDateInfo}>
+
+              <Ionicons
+                name="calendar-outline"
+                size={22}
+                color="#2563eb"
+              />
+
+              <View
+                style={{
+                  flex: 1,
+                  marginLeft: 10,
+                }}
+              >
+
+                <Text
+                  style={styles.selectedDateLabel}
+                >
+                  {isHistoricalDate
+                    ? "Historical tasks"
+                    : "Today's tasks"}
+                </Text>
+
+                <Text
+                  style={styles.selectedDateText}
+                >
+                  {formatDateForDisplay(
+                    selectedDate
+                  )}
+                </Text>
+
+              </View>
+
+            </View>
+
+
+            <TouchableOpacity
+              style={styles.changeDateButton}
+              onPress={() =>
+                setDatePickerVisible(true)
+              }
+            >
+              <Ionicons
+                name="calendar"
+                size={17}
+                color="#2563eb"
+              />
+
+              <Text
+                style={styles.changeDateText}
+              >
+                Change
+              </Text>
+            </TouchableOpacity>
+
+          </View>
+
+
 
           {/* GROUPED TASKS */}
           {categoryOrder
@@ -1053,7 +1343,7 @@ export default function CaregiverDashboard() {
                   color="#9ca3af"
                 />
                 <Text style={styles.emptyPatientText}>
-                  No patient assigned yet
+                  No patient assigned
                 </Text>
               </View>
             )}
@@ -1194,6 +1484,28 @@ export default function CaregiverDashboard() {
         </View>
       </Modal>
       {/* 🔴 LOGOUT FAB */}
+
+      {/* -------------------------------- */}
+      {/* DATE PICKER */}
+      {/* -------------------------------- */}
+
+      {datePickerVisible && (
+        <DateTimePicker
+          value={getDateObject(selectedDate)}
+          mode="date"
+          display={
+            Platform.OS === "ios"
+              ? "spinner"
+              : "default"
+          }
+          maximumDate={
+            getDateObject(todayString)
+          }
+          onChange={
+            handleDateChange
+          }
+        />
+      )}
 
     </SafeAreaView>
   );

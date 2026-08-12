@@ -119,21 +119,23 @@ export default function LoginScreen() {
         const role = await AsyncStorage.getItem("role");
         setTimeout(() => {
 
-          // FAMILY LEAD -> PATIENT DASHBOARD
-          if (role === "family_lead") {
-            // router.replace("/(patient)/dashboard");
-            router.replace("/(selectDate)/datepicker");
+
+          if (
+            role === "family_lead"
+          ) {
+            router.replace({
+              pathname: "/(selectDate)/datepicker",
+              params: {
+                role,
+              },
+            });
+            return;
           }
 
-          // CAREGIVER -> SCANNER
-          else if (role === "caregiver") {
-            router.replace("/(scanner)");
-          }
 
-          // ADMIN / DOCTOR FALLBACK
-          else {
-            router.replace("/(scanner)");
-          }
+
+          router.replace("/(scanner)");
+
 
         }, 700);
 

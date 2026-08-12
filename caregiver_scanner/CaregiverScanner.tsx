@@ -124,9 +124,12 @@ export default function CaregiverScanner() {
         // setResult("success");
 
         setTimeout(() => {
-          router.replace(
-            "/(caregiver)/dashboard"
-          );
+          router.replace({
+            pathname: "/(selectDate)/datepicker",
+            params: {
+              role: "caregiver"
+            },
+          })
         }, 1000);
 
         return;

@@ -1,80 +1,17 @@
-import { styles } from "@/styles/date-picker.styles";
-import DateTimePicker, {
-    DateTimePickerEvent,
-} from "@react-native-community/datetimepicker";
-
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import AsyncStorage from
+    "@react-native-async-storage/async-storage";
 
 import {
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    Text,
-    View,
+    useRouter,
+} from "expo-router";
+
+import {
     useWindowDimensions,
 } from "react-native";
 
+import DateSelectionView from "@/components/date-picker/DateSelectionView";
 
-/**
- * Convert Date -> YYYY-MM-DD
- *
- * IMPORTANT:
- * Uses local date components instead of
- * toISOString(), because toISOString()
- * converts to UTC and can cause date shifting.
- */
-const formatDateForApi = (date: Date) => {
-    const year = date.getFullYear();
-
-    const month = String(
-        date.getMonth() + 1
-    ).padStart(2, "0");
-
-    const day = String(
-        date.getDate()
-    ).padStart(2, "0");
-
-    return `${year}-${month}-${day}`;
-};
-
-
-/**
- * Format date for UI
- */
-const formatDateForDisplay = (
-    date: Date
-) => {
-    return date.toLocaleDateString(
-        "en-IN",
-        {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-        }
-    );
-};
-
-
-/**
- * Remove time from Date
- */
-const startOfDay = (date: Date) => {
-    const result = new Date(date);
-
-    result.setHours(
-        0,
-        0,
-        0,
-        0
-    );
-
-    return result;
-};
+import { useDateSelection } from "@/hooks/date-picker/useDateSelection";
 
 
 export default function PatientDatePickerScreen() {
@@ -82,106 +19,35 @@ export default function PatientDatePickerScreen() {
     const router = useRouter();
 
 
+    // ----------------------------------------
+    // Screen dimensions
+    // ----------------------------------------
 
-    const { width } =
-        useWindowDimensions();
+    const {
+        width
+    } = useWindowDimensions();
+
 
     const isSmallScreen =
         width < 360;
 
 
     // ----------------------------------------
-    // Today
+    // Date selection logic
     // ----------------------------------------
 
-    const today = useMemo(() => {
-        return startOfDay(new Date());
-    }, []);
-
-
-    // ----------------------------------------
-    // Selected date
-    // Default = today
-    // ----------------------------------------
-
-    const [selectedDate, setSelectedDate] =
-        useState<Date>(today);
-
-
-    const [showPicker, setShowPicker] =
-        useState(false);
-
-
-    const [error, setError] =
-        useState("");
-
-
-    // ----------------------------------------
-    // Display date
-    // ----------------------------------------
-
-    const displayDate =
-        formatDateForDisplay(selectedDate);
-
-
-    // ----------------------------------------
-    // API date
-    // ----------------------------------------
-
-    const apiDate =
-        formatDateForApi(selectedDate);
-
-
-    // ----------------------------------------
-    // Date picker change
-    // ----------------------------------------
-
-    const handleDateChange = (
-        event: DateTimePickerEvent,
-        date?: Date
-    ) => {
-
-        // Android:
-        // user pressed Cancel
-        if (
-            Platform.OS === "android"
-        ) {
-            setShowPicker(false);
-        }
-
-        if (
-            event.type === "dismissed"
-        ) {
-            return;
-        }
-
-        if (!date) {
-            return;
-        }
-
-        const selected =
-            startOfDay(date);
-
-
-        // --------------------------------------
-        // Don't allow future date
-        // --------------------------------------
-
-        if (selected > today) {
-            setError(
-                "You can only select today or a previous date."
-            );
-
-            setSelectedDate(today);
-
-            return;
-        }
-
-
-        setError("");
-
-        setSelectedDate(selected);
-    };
+    const {
+        selectedDate,
+        today,
+        showPicker,
+        error,
+        displayDate,
+        apiDate,
+        openPicker,
+        handleDateChange,
+        validateSelectedDate,
+        setError,
+    } = useDateSelection();
 
 
     // ----------------------------------------
@@ -190,60 +56,104 @@ export default function PatientDatePickerScreen() {
 
     const handleContinue = async () => {
 
+        // Clear previous error
         setError("");
 
 
+        // ----------------------------------------
         // Safety validation
-        const selected =
-            startOfDay(selectedDate);
+        // ----------------------------------------
+
+        const isValid =
+            validateSelectedDate();
 
 
-        // Future date protection
-        if (selected > today) {
-            setError(
-                "Please select today or a previous date."
-            );
-
+        if (!isValid) {
             return;
         }
 
 
-        const date =
-            formatDateForApi(selected);
-
         try {
-            const role = await AsyncStorage.getItem("role");
 
-            console.log("Selected date:", date);
-            console.log("Role:", role);
-            if (role === "family_lead") {
+            // ----------------------------------------
+            // Get user role
+            // ----------------------------------------
+
+            const role =
+                await AsyncStorage.getItem(
+                    "role"
+                );
+
+
+            console.log(
+                "Selected date:",
+                apiDate
+            );
+
+            console.log(
+                "Role:",
+                role
+            );
+
+
+            // ----------------------------------------
+            // Family lead
+            // ----------------------------------------
+
+            if (
+                role === "family_lead"
+            ) {
+
                 router.replace({
-                    pathname: "/(patient)/dashboard",
+                    pathname:
+                        "/(patient)/dashboard",
+
                     params: {
-                        date,
+                        date: apiDate,
                     },
                 });
 
                 return;
             }
 
-            if (role === "caregiver") {
+
+            // ----------------------------------------
+            // Caregiver
+            // ----------------------------------------
+
+            if (
+                role === "caregiver"
+            ) {
+
                 router.replace({
-                    pathname: "/(caregiver)/dashboard",
+                    pathname:
+                        "/(caregiver)/dashboard",
+
                     params: {
-                        date,
+                        date: apiDate,
                     },
                 });
 
                 return;
             }
-            setError("Invalid user role.");
+
+
+            // ----------------------------------------
+            // Invalid role
+            // ----------------------------------------
+
+            setError(
+                "Invalid user role."
+            );
+
         }
         catch (error) {
+
             console.error(
                 "Failed to retrieve user role:",
                 error
             );
+
 
             setError(
                 "Unable to retrieve user information."
@@ -253,292 +163,52 @@ export default function PatientDatePickerScreen() {
 
 
     // ----------------------------------------
-    // Go back
+    // UI
     // ----------------------------------------
 
-    // const handleBack = () => {
-    //     router.back();
-    // };
-
-
     return (
-        <SafeAreaView
-            style={styles.safeArea}
-        >
+        <DateSelectionView
 
-            <ScrollView
-                contentContainerStyle={[
-                    styles.scrollContent,
-                    isSmallScreen &&
-                    styles.scrollContentSmall,
-                ]}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-            >
+            selectedDate={
+                selectedDate
+            }
 
-                <View
-                    style={[
-                        styles.container,
-                        {
-                            maxWidth:
-                                isSmallScreen
-                                    ? 500
-                                    : 600,
-                        },
-                    ]}
-                >
+            today={
+                today
+            }
 
-                    {/* -------------------------------- */}
-                    {/* Back */}
-                    {/* -------------------------------- */}
+            showPicker={
+                showPicker
+            }
 
-                    {/* <Pressable
-                        onPress={handleBack}
-                        style={({ pressed }) => [
-                            styles.backButton,
-                            pressed &&
-                            styles.pressed,
-                        ]}
-                    >
-                        <Text
-                            style={styles.backIcon}
-                        >
-                            {"‹"}
-                        </Text>
+            error={
+                error
+            }
 
-                        <Text
-                            style={styles.backText}
-                        >
-                            Back
-                        </Text>
-                    </Pressable> */}
+            displayDate={
+                displayDate
+            }
 
+            apiDate={
+                apiDate
+            }
 
-                    {/* -------------------------------- */}
-                    {/* Header */}
-                    {/* -------------------------------- */}
+            isSmallScreen={
+                isSmallScreen
+            }
 
-                    <View
-                        style={styles.header}
-                    >
+            onOpenPicker={
+                openPicker
+            }
 
-                        <View
-                            style={styles.iconContainer}
-                        >
-                            <Text
-                                style={styles.calendarIcon}
-                            >
-                                📅
-                            </Text>
-                        </View>
+            onDateChange={
+                handleDateChange
+            }
 
-                        <Text
-                            style={[
-                                styles.title,
-                                isSmallScreen &&
-                                styles.titleSmall,
-                            ]}
-                        >
-                            Select a date
-                        </Text>
+            onContinue={
+                handleContinue
+            }
 
-                        <Text
-                            style={[
-                                styles.subtitle,
-                                isSmallScreen &&
-                                styles.subtitleSmall,
-                            ]}
-                        >
-                            Choose the day for which you
-                            want to view your care tasks.
-                        </Text>
-
-                    </View>
-
-
-                    {/* -------------------------------- */}
-                    {/* Card */}
-                    {/* -------------------------------- */}
-
-                    <View
-                        style={styles.card}
-                    >
-
-                        <Text
-                            style={styles.label}
-                        >
-                            Selected date
-                        </Text>
-
-
-                        {/* -------------------------------- */}
-                        {/* Date Button */}
-                        {/* -------------------------------- */}
-
-                        <Pressable
-                            onPress={() => {
-                                setError("");
-                                setShowPicker(true);
-                            }}
-                            style={({ pressed }) => [
-                                styles.dateButton,
-                                pressed &&
-                                styles.pressed,
-                            ]}
-                        >
-
-                            <View
-                                style={styles.dateIconBox}
-                            >
-                                <Text
-                                    style={styles.dateIcon}
-                                >
-                                    📅
-                                </Text>
-                            </View>
-
-
-                            <View
-                                style={styles.dateTextContainer}
-                            >
-
-                                <Text
-                                    style={[
-                                        styles.dateText,
-                                        isSmallScreen &&
-                                        styles.dateTextSmall,
-                                    ]}
-                                >
-                                    {displayDate}
-                                </Text>
-
-                                <Text
-                                    style={styles.apiDate}
-                                >
-                                    {apiDate}
-                                </Text>
-
-                            </View>
-
-
-                            <Text
-                                style={styles.chevron}
-                            >
-                                ›
-                            </Text>
-
-                        </Pressable>
-
-
-                        {/* -------------------------------- */}
-                        {/* Native Picker */}
-                        {/* -------------------------------- */}
-
-                        {showPicker && (
-                            <DateTimePicker
-                                value={selectedDate}
-                                mode="date"
-                                display={
-                                    Platform.OS === "ios"
-                                        ? "spinner"
-                                        : "default"
-                                }
-                                maximumDate={today}
-                                onChange={
-                                    handleDateChange
-                                }
-                            />
-                        )}
-
-
-                        {/* -------------------------------- */}
-                        {/* Error */}
-                        {/* -------------------------------- */}
-
-                        {error ? (
-                            <View
-                                style={styles.errorBox}
-                            >
-                                <Text
-                                    style={styles.errorText}
-                                >
-                                    {error}
-                                </Text>
-                            </View>
-                        ) : null}
-
-
-                        {/* -------------------------------- */}
-                        {/* Information */}
-                        {/* -------------------------------- */}
-
-                        <View
-                            style={styles.infoBox}
-                        >
-
-                            <Text
-                                style={styles.infoIcon}
-                            >
-                                ℹ️
-                            </Text>
-
-                            <Text
-                                style={styles.infoText}
-                            >
-                                You can view today's tasks or
-                                review tasks from previous days.
-                            </Text>
-
-                        </View>
-
-
-                        {/* -------------------------------- */}
-                        {/* Continue */}
-                        {/* -------------------------------- */}
-
-                        <Pressable
-                            onPress={handleContinue}
-                            style={({ pressed }) => [
-                                styles.continueButton,
-                                pressed &&
-                                styles.pressed,
-                            ]}
-                        >
-
-                            <Text
-                                style={styles.continueText}
-                            >
-                                Continue
-                            </Text>
-
-                            <Text
-                                style={styles.continueArrow}
-                            >
-                                →
-                            </Text>
-
-                        </Pressable>
-
-                    </View>
-
-
-                    {/* -------------------------------- */}
-                    {/* Footer */}
-                    {/* -------------------------------- */}
-
-                    <Text
-                        style={styles.footer}
-                    >
-                        You can change the date later
-                        from the patient dashboard.
-                    </Text>
-
-                </View>
-
-            </ScrollView>
-
-        </SafeAreaView>
+        />
     );
 }
-
-

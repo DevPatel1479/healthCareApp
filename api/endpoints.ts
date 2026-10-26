@@ -38,4 +38,6 @@ export const ENDPOINTS = {
 
     baseWebsocketApiRealTimeUpdates: () => `${BASE_SOCKET_URL}`,
 
+    submitFeedback: () => "/feedback/"
+
 };

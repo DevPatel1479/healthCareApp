@@ -3,6 +3,9 @@ import DateTimePicker, {
     DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 
+import SpeechToTaskButton from "@/components/dashboard/SpeechToTaskButton";
+
+
 
 
 import {
@@ -175,6 +178,7 @@ export default function PatientDashboard() {
         "Daily_Routine"
     );
     const [caregiver, setCaregiver] = useState<{
+        caregiver_id: number | null;
         name: string;
         phone: string;
         shift?: string;
@@ -203,7 +207,7 @@ export default function PatientDashboard() {
     const [contacts, setContacts] = useState<any[]>([]);
     const [selectedImageUrl, setSelectedImageUrl] =
         useState<string | null>(null);
-    
+
     const [imageModalLoading, setImageModalLoading] = useState(false);
     const [imageModalError, setImageModalError] = useState("");
 
@@ -463,6 +467,19 @@ export default function PatientDashboard() {
         );
     };
 
+
+    const handleOpenFeedback = () => {
+        router.push({
+            pathname: "/(patient)/feedback",
+            params: {
+                selectedDate,
+                caregiverId:
+                    caregiver?.caregiver_id != null
+                        ? String(caregiver.caregiver_id)
+                        : "",
+            },
+        });
+    };
     const refreshCaregiver = async () => {
         try {
 
@@ -485,7 +502,12 @@ export default function PatientDashboard() {
             console.log(updatedCaregiver);
 
             if (updatedCaregiver) {
+                console.log("Assigned caregiver API data:", updatedCaregiver);
+                const id =
+                    updatedCaregiver.caregiver_id ??
+                    updatedCaregiver.id;
                 setCaregiver({
+                    caregiver_id: id != null ? Number(id) : null,
                     name: updatedCaregiver.name,
                     phone: updatedCaregiver.phone_number,
                 });
@@ -493,14 +515,35 @@ export default function PatientDashboard() {
                 setCaregiver(null);
             }
 
+
         } catch (err: any) {
+            const status = err?.response?.status;
+            const data = err?.response?.data;
+
+            // No assigned caregiver is an expected state.
+            if (
+                status === 404 &&
+                data?.message === "No caregiver is currently assigned"
+            ) {
+                setCaregiver(null);
+                console.log("No caregiver currently assigned.");
+                return;
+            }
+
+            console.log(
+                "Refresh caregiver request failed:",
+                status,
+                data || err.message
+            );
+
             console.log(
                 "Refresh caregiver failed:",
-                err?.response?.data || err.message
+                data || err.message
             );
 
             throw err;
         }
+
     };
 
 
@@ -1038,7 +1081,31 @@ export default function PatientDashboard() {
                             size={24}
                             color="#2563eb"
                         />
+
                     </TouchableOpacity>
+
+                    {/* SPEECH TO TASK */}
+                    <SpeechToTaskButton
+                        disabled={isHistoricalDate}
+                        onTranscript={(text) => {
+                            // Update the existing description field as speech is recognized.
+                            setTaskInput(text);
+                        }}
+                        onTranscriptComplete={(text) => {
+                            const description = text.trim();
+
+                            if (!description) {
+                                return;
+                            }
+
+                            // Populate the existing task description.
+                            setTaskInput(description);
+
+                            // Open the existing Create New Task modal automatically.
+                            setModalVisible(true);
+                        }}
+                    />
+
                     {/* GROUPED TASKS */}
                     {categoryOrder
                         .filter((category) => grouped[category]?.length > 0)
@@ -1142,8 +1209,40 @@ export default function PatientDashboard() {
 
                             </View>
                         ))}
+
                 </View>
             </ScrollView>
+
+            {/* FEEDBACK FLOATING ACTION BUTTON */}
+            <TouchableOpacity
+                onPress={handleOpenFeedback}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Give feedback"
+                style={{
+                    position: "absolute",
+                    right: 25,
+                    bottom: 105,
+                    width: 50,
+                    height: 50,
+                    borderRadius: 23,
+                    backgroundColor: "#0f766e",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    elevation: 5,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.2,
+                    shadowRadius: 4,
+                    zIndex: 10,
+                }}
+            >
+                <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={23}
+                    color="#ffffff"
+                />
+            </TouchableOpacity>
 
             {/* ➕ CREATE TASK FAB */}
             <TouchableOpacity

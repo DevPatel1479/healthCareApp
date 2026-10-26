@@ -33,7 +33,7 @@
     "plugins": [
       "expo-router",
       "expo-dev-client",
-
+      
       [
         "expo-splash-screen",
         {
@@ -52,6 +52,14 @@
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera."
+        }
+      ],
+
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow microphone access.",
+          "speechRecognitionPermission": "Allow speech recognition."
         }
       ],
 

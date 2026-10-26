@@ -32,7 +32,16 @@ import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 
+import * as Speech from "expo-speech";
 
+import {
+  TaskSpeechButton,
+  TaskSpeechLanguagePicker,
+} from "@/components/dashboard/TaskTextToSpeech";
+
+import type {
+  SpeechLanguage,
+} from "@/components/dashboard/TaskTextToSpeech";
 
 
 
@@ -63,6 +72,8 @@ type TaskAssignment = {
     task_category: string;
     scheduled_time: string | null;
     clinical_notes: string | null;
+    // Optional translated task descriptions from the backend.
+    translations?: Partial<Record<SpeechLanguage, string>>;
 
   };
 
@@ -121,12 +132,24 @@ const sortTasks = (tasks: TaskAssignment[]) => {
 
 export default function CaregiverDashboard() {
   const router = useRouter();
+  const [speechLanguage, setSpeechLanguage] =
+    useState<SpeechLanguage>("en-IN");
 
+  const [speakingTaskId, setSpeakingTaskId] =
+    useState<number | null>(null);
   const { date: routeDate } =
     useLocalSearchParams<{
       date?: string;
     }>();
 
+
+  const handleSpeechLanguageChange = (
+    language: SpeechLanguage
+  ) => {
+    void Speech.stop().catch(() => { });
+    setSpeakingTaskId(null);
+    setSpeechLanguage(language);
+  };
   const getTodayString = () => {
     const today = new Date();
 
@@ -251,7 +274,11 @@ export default function CaregiverDashboard() {
     return selectedDate === todayString;
   };
 
-
+  useEffect(() => {
+    return () => {
+      void Speech.stop().catch(() => { });
+    };
+  }, []);
 
   useEffect(() => {
     const loadCaregiverName = async () => {
@@ -901,6 +928,51 @@ export default function CaregiverDashboard() {
     setImageLoading(false);
     setImageError(null);
   };
+
+  const handleOpenFeedback = () => {
+    const assignedPatient =
+      patientInfo ?? tasks.find((task) => task.patient)?.patient ?? null;
+
+    const rawPatientId =
+      assignedPatient?.patient_id ?? assignedPatient?.id;
+
+    const patientId = Number(rawPatientId);
+
+    if (
+      rawPatientId == null ||
+      !Number.isInteger(patientId) ||
+      patientId <= 0
+    ) {
+      Alert.alert(
+        "Patient Unavailable",
+        "Feedback requires an assigned patient. Please refresh your dashboard and try again."
+      );
+      return;
+    }
+
+    const matchingTask = tasks.find((task) => {
+      const taskPatientId =
+        task.patient?.patient_id ?? task.patient?.id;
+
+      return (
+        taskPatientId != null &&
+        Number(taskPatientId) === patientId
+      );
+    });
+
+    router.push({
+      pathname: "/(caregiver)/feedback",
+      params: {
+        patientId: String(patientId),
+        assignmentId: matchingTask
+          ? String(matchingTask.assignment_id)
+          : "",
+        selectedDate,
+      },
+    });
+  };
+
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -1049,6 +1121,10 @@ export default function CaregiverDashboard() {
             </TouchableOpacity>
 
           </View>
+          <TaskSpeechLanguagePicker
+            language={speechLanguage}
+            onLanguageChange={handleSpeechLanguageChange}
+          />
 
 
 
@@ -1095,7 +1171,23 @@ export default function CaregiverDashboard() {
                         }}
                         onToggle={() => handleToggle(task)}
                       />
-
+                      <TaskSpeechButton
+                        taskId={task.assignment_id}
+                        text={
+                          task.task.translations?.[speechLanguage]?.trim() ||
+                          task.task.description
+                        }
+                        language={speechLanguage}
+                        isSpeaking={speakingTaskId === task.assignment_id}
+                        onSpeechStart={(taskId) => {
+                          setSpeakingTaskId(taskId);
+                        }}
+                        onSpeechEnd={(taskId) => {
+                          setSpeakingTaskId((current) =>
+                            current === taskId ? null : current
+                          );
+                        }}
+                      />
                       {(task.observation || task.photo_evidence) && (
                         <View style={styles.observationContainer}>
 
@@ -1151,7 +1243,36 @@ export default function CaregiverDashboard() {
 
         </View>
       </ScrollView>
-
+      {/* CAREGIVER FEEDBACK FLOATING ACTION BUTTON */}
+      <TouchableOpacity
+        onPress={handleOpenFeedback}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="Give feedback"
+        style={{
+          position: "absolute",
+          right: 20,
+          bottom: 105,
+          width: 46,
+          height: 46,
+          borderRadius: 23,
+          backgroundColor: "#ea580c",
+          alignItems: "center",
+          justifyContent: "center",
+          elevation: 5,
+          shadowColor: "#000000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.2,
+          shadowRadius: 4,
+          zIndex: 10,
+        }}
+      >
+        <Ionicons
+          name="chatbubble-ellipses-outline"
+          size={23}
+          color="#ffffff"
+        />
+      </TouchableOpacity>
       {/* FAB */}
       {selectedCount > 0 && (
         <Animated.View
